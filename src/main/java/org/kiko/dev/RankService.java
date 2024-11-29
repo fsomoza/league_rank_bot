@@ -1,11 +1,13 @@
 package org.kiko.dev;// File: org/kiko/dev/service/RankService.java
 
 
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mongodb.client.FindIterable;
+import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.model.Sorts;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Guild;
@@ -13,12 +15,9 @@ import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
-import org.kiko.dev.RiotApiAdapter;
-import org.kiko.dev.MongoDbAdapter;
-import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.MongoCollection;
-import com.mongodb.client.model.ReplaceOptions;
 import org.bson.Document;
+import org.kiko.dev.MongoDbAdapter;
+import org.kiko.dev.RiotApiAdapter;
 
 import java.io.IOException;
 import java.util.*;
