@@ -14,8 +14,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 
 public class RiotApiAdapter {
 
@@ -76,9 +75,10 @@ public class RiotApiAdapter {
         }
     }
 
-    public CurrentGameInfo checkWhoInGame(String puuid) throws Exception {
+    public CurrentGameInfo checkWhoInGame(String puuid, HashMap<String, AccountInfo> playersMap) throws Exception {
 
         CurrentGameInfo currentGameInfo = new CurrentGameInfo();
+
 
         String endpoint = String.format("/lol/spectator/v5/active-games/by-summoner/%s",
                 URLEncoder.encode(puuid, StandardCharsets.UTF_8));
@@ -93,42 +93,51 @@ public class RiotApiAdapter {
         if (response.statusCode() == 200) {
             JsonObject jsonObject = gson.fromJson(response.body(), JsonObject.class);
             // Ensure you retrieve the string value for comparison
-            String gameQueueConfigId = jsonObject.get("gameQueueConfigId").getAsString();
-            if ("420".equals(gameQueueConfigId) || "440".equals(gameQueueConfigId) || "100".equals(gameQueueConfigId)
-                || "400".equals(gameQueueConfigId) || "450".equals(gameQueueConfigId)) { // Using constant first to avoid NullPointerException
 
                 currentGameInfo.setGameId(jsonObject.get("gameId").getAsString());
-
+                currentGameInfo.setQueueType(jsonObject.get("gameQueueConfigId").getAsString());
+                List<Participant> participants = new ArrayList<>();
+                currentGameInfo.setParticipants(participants);
+                int counter = 0;
                 for (var participantElement : jsonObject.get("participants").getAsJsonArray()) {
+                    counter++;
+                    System.out.println(counter);
+
                     JsonObject participant = participantElement.getAsJsonObject();
                     String participantPuuid = participant.get("puuid").getAsString();
-                    if (participantPuuid.equals(puuid)) {
-                        currentGameInfo.setChampion(participant.get("championId").getAsString());
-                        return currentGameInfo;
+
+                    if (playersMap.containsKey(participantPuuid)) {
+
+                        Participant participantObj = new Participant();
+                        participantObj.setPuuid(participantPuuid);
+                        participantObj.setChampionId(participant.get("championId").getAsString());
+                        participantObj.setPlayerName(playersMap.get(participantPuuid).getName());
+                        participants.add(participantObj);
+                        currentGameInfo.setParticipants(participants);
+                        playersMap.remove(participantPuuid);
+
                     }
                 }
-            }
-            return null; // Or handle the case where gameQueueConfigId is not "420"
+                    return currentGameInfo;
         } else {
             //handleErrorResponse(response);
             return null;
         }
     }
 
-    public CompletedGameInfo checkCompletedGame(String gameId, String puuid) throws Exception {
+    public CompletedGameInfo checkCompletedGame(String gameId, HashSet<String> participantPuuids) throws Exception {
+
+        //TODO: need to cover casuistic where players are in opposite teams
 
         CompletedGameInfo completedGameInfo = new CompletedGameInfo();
+        List<CompletedGameInfoParticipant> completedGameInfoParticipants = new ArrayList<>();
+        completedGameInfo.setParticipants(completedGameInfoParticipants);
 
         // Encode the PUUID to ensure it's safe for use in a URL
         String encodedPuuid = URLEncoder.encode(gameId, StandardCharsets.UTF_8);
 
         // Complete the endpoint by adding '/ids' and the query parameters
         String endpoint = String.format("/lol/match/v5/matches/%s", encodedPuuid);
-
-        //https://europe.api.riotgames.com/lol/match/v5/matches/EUW1_7206377185?api_key=RGAPI-9c2ec92d-647c-486e-8264-5a6b6cef9526
-
-        // Build the full URI
-        //URI uri = URI.create(BASE_URL + endpoint);
 
 
         HttpRequest request = HttpRequest.newBuilder()
@@ -147,24 +156,24 @@ public class RiotApiAdapter {
             for (JsonElement participantElement : participants) {
                 JsonObject participant = participantElement.getAsJsonObject();
                 String participantPuuid = participant.get("puuid").getAsString();
-                if (participantPuuid.equals(puuid)) {
+                if (participantPuuids.contains(participantPuuid)) {
                     JsonObject player = participant.getAsJsonObject();
-                    completedGameInfo.setPlayerName(player.get("riotIdGameName").getAsString());
-                    completedGameInfo.setChampion(player.get("championName").getAsString());
+                    CompletedGameInfoParticipant completedGameInfoParticipant = new CompletedGameInfoParticipant();
+                    completedGameInfoParticipant.setPlayerName(player.get("riotIdGameName").getAsString());
+                    completedGameInfoParticipant.setChampion(player.get("championName").getAsString());
                     completedGameInfo.setWin(player.get("win").getAsBoolean());
                     String kills = player.get("kills").getAsString();
                     String deaths = player.get("deaths").getAsString();
                     String assists = player.get("assists").getAsString();
-                    completedGameInfo.setKda(kills + "/" + deaths + "/" + assists);
-                    return completedGameInfo;
-
+                    completedGameInfoParticipant.setKda(kills + "/" + deaths + "/" + assists);
+                    completedGameInfoParticipants.add(completedGameInfoParticipant);
                 }
             }
+            return completedGameInfo;
+        }else{
+            return null;
         }
 
-
-
-        return null;
     }
 
     public String searchGameId(String puuid, String gameId) throws Exception {

@@ -17,7 +17,7 @@ public class MyScheduledTask {
         Runnable task = this::executeTask;
 
         // Schedule the task to run every 2 minutes with an initial delay of 0
-        scheduler.scheduleAtFixedRate(task, 0, 5, TimeUnit.MINUTES);
+        scheduler.scheduleAtFixedRate(task, 0, 30, TimeUnit.SECONDS);
     }
 
     private void executeTask() {

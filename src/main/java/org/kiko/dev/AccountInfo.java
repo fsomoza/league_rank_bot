@@ -6,10 +6,12 @@ public class AccountInfo {
     private String puuid;
 
     //constructor
-    public AccountInfo(){
-
+    public AccountInfo(String name){
+        this.name = name;
     }
 
+    public AccountInfo() {
+    }
     public String getName() {
         return name;
     }
