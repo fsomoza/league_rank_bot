@@ -139,8 +139,9 @@ public class ReminderBot extends ListenerAdapter {
             case "ranking":
                 event.deferReply().queue(); // For longer operations
                 try {
-                    String ranking = rankService.getRankedPlayerList();
-                    event.getHook().sendMessage(ranking).queue();
+                    //String ranking = rankService.getRankedPlayerList();
+                    event.getHook().sendMessageEmbeds(rankService.getRankedPlayerListEmbed()).queue();
+                    //event.getHook().sendMessage(ranking).queue();
                 } catch (IllegalArgumentException e) {
                     event.getHook().sendMessage(e.getMessage()).queue();
                 } catch (Exception e) {

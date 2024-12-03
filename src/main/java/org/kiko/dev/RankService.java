@@ -10,9 +10,11 @@ import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.model.Sorts;
+import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Message;
+import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.requests.restaction.MessageCreateAction;
 import okhttp3.OkHttpClient;
@@ -22,8 +24,10 @@ import org.bson.Document;
 import org.kiko.dev.MongoDbAdapter;
 import org.kiko.dev.RiotApiAdapter;
 
+import java.awt.*;
 import java.io.IOException;
 import java.util.*;
+import java.util.List;
 
 public class RankService {
 
@@ -79,107 +83,9 @@ public class RankService {
         return rank;
     }
 
-//    public void checkWhoInGame() throws Exception {
-//
-//        Guild guild = jda.getGuildById("1304851342497546372");
-//        TextChannel channel = guild.getTextChannelById("1312125144659132416");
-//
-//        MongoDatabase database = mongoDbAdapter.getDatabase();
-//
-//
-//       List<String> playersInGame = new ArrayList<>();
-//
-//
-//
-//
-//        MongoCollection<Document> collection = database.getCollection("serverRanks");
-//        // Fetch and sort players by elo in descending order
-//        FindIterable<Document> iterable = collection.find().sort(Sorts.descending("elo"));
-//        List<Document> players = iterable.into(new ArrayList<>());
-//
-//
-//
-//        MongoCollection<Document> gamesCollection = database.getCollection("gamesInProgress");
-//        FindIterable<Document> gamesIterable = gamesCollection.find();
-//
-//        try (MongoCursor<Document> cursor = gamesIterable.iterator()) {
-//            while (cursor.hasNext()) {
-//                Document game = cursor.next();
-//                String gameId = game.getString("id");
-//                String puuid =  game.getString("puuid");
-//
-//                String foundGameId = riotApiAdapter.searchGameId(puuid, gameId);
-//                if (foundGameId != null){
-//                    CompletedGameInfo completedGameInfo = riotApiAdapter.checkCompletedGame(foundGameId, puuid);
-//                    gamesCollection.deleteOne(new Document("id", gameId));
-//
-//                    if(completedGameInfo.getWin()){
-//                    channel.sendMessage(completedGameInfo.getPlayerName() + " ha ganado una partida con " + completedGameInfo.getChampion()
-//                    + " KDA :" + completedGameInfo.getKda()).queue();
-//                    }else{
-//                        channel.sendMessage(completedGameInfo.getPlayerName() + " perdió una partida con " + completedGameInfo.getChampion()
-//                                + " KDA :" + completedGameInfo.getKda()).queue();
-//                    }
-//                }else{
-//                    playersInGame.add(puuid);
-//                }
-//                System.out.println("Game ID: " + gameId);
-//            }
-//        } catch (Exception e) {
-//            e.printStackTrace();
-//            // Handle exceptions as needed
-//        }
-//
-//
-//        Map<String,CurrentGameInfo> playersMap = new HashMap<>();
-//
-//
-//
-//        for (Document player : players) {
-//            if (player.getString("name") == null){
-//                System.out.println("null");
-//            }
-//            if (player.getString("name").equalsIgnoreCase("gimi23")){
-//                System.out.println(player.getString("name"));
-//            }
-//
-//           CurrentGameInfo currentGameInfo = riotApiAdapter.checkWhoInGame(player.getString("puuid"));
-//           if (currentGameInfo != null && !playersInGame.contains(player.getString("puuid"))){
-//               System.out.println(player.getString("name") + " is in a game with " + currentGameInfo.getChampion());
-//
-//               currentGameInfo.setPlayerName(player.getString("name"));
-//                currentGameInfo.setPuuid(player.getString("puuid"));
-//               // Create a document for MongoDB
-//
-//
-//               Document gameDoc = new Document("id", currentGameInfo.getGameId())
-//                       .append("championName", this.getChampionName(currentGameInfo.getChampion()))
-//                       .append("playerName", player.getString("name")).
-//                       append("puuid", currentGameInfo.getPuuid());
-//
-//               // Upsert the champion document based on the 'id' field
-//               gamesCollection.replaceOne(
-//                       new Document("id", currentGameInfo.getGameId()),
-//                       gameDoc,
-//                       new ReplaceOptions().upsert(true)
-//               );
-//
-//               channel.sendMessage(currentGameInfo.getPlayerName() + " está jugando una partida con " + this.getChampionName(currentGameInfo.getChampion())).queue();
-//
-//
-//
-//           }else{
-//               System.out.println(player.getString("name") + " is not in a game");
-//           }
-//        }
-//
-//
-//    }
-
 
     public void checkWhoInGame() throws Exception {
-//        Guild ID: 1310689513894318121
-//        hannel ID: 1310689515899322449
+
 
 
         Guild guild = jda.getGuildById("1304851342497546372");
@@ -214,20 +120,28 @@ public class RankService {
 
                     CompletedGameInfo completedGameInfo = riotApiAdapter.checkCompletedGame(foundGameId, participantPuuids);
                     completedGameInfo.setQueueType(gameDoc.getString("queueType"));
-                    gamesInProgressCollection.deleteOne(new Document("id", gameId));
-
-//                    String message = String.format("%s %s una partida con %s KDA: %s",
-//                            completedGameInfo.getPlayerName(),
-//                            completedGameInfo.getWin() ? "ha ganado" : "perdió",
-//                            completedGameInfo.getChampion(),
-//                            completedGameInfo.getKda());
+                    //gamesInProgressCollection.deleteOne(new Document("id", gameId));
 
 
                     // Build your message content
-                    MessageCreateAction messageAction = channel.sendMessage(buildMessage(completedGameInfo));
+//                    MessageCreateAction messageAction = channel.sendMessageEmbeds(buildEmbedMessage(completedGameInfo));
+//
+//
+//                    // Set the message reference to reply to the specific message
+//                    messageAction.setMessageReference(gameDoc.getString("messageId")).queue();
 
-                    // Set the message reference to reply to the specific message
-                    messageAction.setMessageReference(gameDoc.getString("messageId")).queue();
+                   Message message = channel.sendMessageEmbeds(buildEmbedMessage(completedGameInfo))
+                            .setMessageReference(gameDoc.getString("messageId")).complete();
+                    if (message != null) {
+                        System.out.println("Message sent successfully");
+                        gamesInProgressCollection.deleteOne(new Document("id", gameId));
+
+                    }else{
+                        System.out.println("Message not sent");
+                        throw new Exception("Message not sent");
+                    }
+
+
                 } else {
                     // Game is still in progress
                     for (Document participant : participants) {
@@ -307,33 +221,66 @@ public class RankService {
 
                      }
 
-                    StringBuilder sb = new StringBuilder();
+//                    StringBuilder sb = new StringBuilder();
+//
+//                    sb.append("\n\n"); // Add spacing before the message for separation
+//                    sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"); // Visual separator
+//                    sb.append("Partida en curso detectada!\n");
+//                    sb.append("Modo de juego: " + getQueueType(currentGameInfo.getQueueType()) + "\n");
+//                    sb.append("Jugadores en la partida:\n");
+//                    sb.append("```\n"); // Start of code block
+//                    sb.append(String.format("%-20s %-10s\n", "Player", "Champion"));
+//                    sb.append(String.format("%-20s %-10s\n", "--------------------", "----------"));
+//                    for (Participant participant : participants) {
+//                        sb.append(String.format("%-20s %-10s\n", participant.getPlayerName(), getChampionName(participant.getChampionId())));
+//                    }
+//                    sb.append("```"); // End of code block
+//                    sb.append("\n");
+//
+//                    if (getQueueType(currentGameInfo.getQueueType()).contains("ARAM")) {
+//                        sb.append("Si no dejais que tiren los minions el nexo, sois unos sudorosos!\n");
+//                    } else {
+//                        sb.append("Si os stompean, recordad que siempre es jungle diff!\n");
+//                    }
+//
+//                    sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"); // Visual separator
+//                    sb.append("\n\n"); // Add spacing after the message for separation
+//
+//                    Message message = channel.sendMessage(sb.toString()).complete();
 
-                    sb.append("\n\n"); // Add spacing before the message for separation
-                    sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"); // Visual separator
-                    sb.append("Partida en curso detectada!\n");
-                    sb.append("Modo de juego: " + getQueueType(currentGameInfo.getQueueType()) + "\n");
-                    sb.append("Jugadores en la partida:\n");
-                    sb.append("```\n"); // Start of code block
-                    sb.append(String.format("%-20s %-10s\n", "Player", "Champion"));
-                    sb.append(String.format("%-20s %-10s\n", "--------------------", "----------"));
+
+                    EmbedBuilder embed = new EmbedBuilder();
+                    embed.setColor(0x1F8B4C); // Set a nice green color
+                    embed.setTitle("🚨 Partida en curso detectada!");
+                    embed.setDescription("**Modo de juego:** " + getQueueType(currentGameInfo.getQueueType()));
+
+// Build the table as a single code block
+                    StringBuilder tableBuilder = new StringBuilder();
+                    tableBuilder.append("```");
+                    tableBuilder.append(String.format("%-20s %-10s%n", "Player", "Champion"));
+                    tableBuilder.append(String.format("%-20s %-10s%n", "--------------------", "----------"));
+
                     for (Participant participant : participants) {
-                        sb.append(String.format("%-20s %-10s\n", participant.getPlayerName(), getChampionName(participant.getChampionId())));
+                        String playerInfo = String.format("%-20s %-10s", participant.getPlayerName(), getChampionName(participant.getChampionId()));
+                        tableBuilder.append(playerInfo).append("\n");
                     }
-                    sb.append("```"); // End of code block
-                    sb.append("\n");
 
+                    tableBuilder.append("```");
+
+// Add the table as a single field
+                    embed.addField("Jugadores en la partida", tableBuilder.toString(), false);
+
+// Add a fun note depending on the game mode
                     if (getQueueType(currentGameInfo.getQueueType()).contains("ARAM")) {
-                        sb.append("Si no dejais que tiren los minions el nexo, sois unos sudorosos!\n");
+                        embed.setFooter("💡 Si no dejais que tiren los minions el nexo, sois unos sudorosos!");
                     } else {
-                        sb.append("Si os stompean, recordad que siempre es jungle diff!\n");
+                        embed.setFooter("💡 Si os stompean, recordad que siempre es jungle diff!");
                     }
 
-                    sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"); // Visual separator
-                    sb.append("\n\n"); // Add spacing after the message for separation
+                    embed.setTimestamp(java.time.Instant.now());
 
-                    Message message = channel.sendMessage(sb.toString()).complete();
-
+// Send the embed message
+                    Message message = channel.sendMessageEmbeds(embed.build()).complete();
 
                     // Prepare document for MongoDB
                     Document gameDoc = new Document("id", currentGameInfo.getGameId())
@@ -506,6 +453,71 @@ public class RankService {
     }
 
 
+    public MessageEmbed getRankedPlayerListEmbed() {
+        MongoDatabase database = mongoDbAdapter.getDatabase();
+        MongoCollection<Document> collection = database.getCollection("serverRanks");
+
+        // Fetch and sort players by ELO in descending order
+        FindIterable<Document> iterable = collection.find().sort(Sorts.descending("elo"));
+        List<Document> players = iterable.into(new ArrayList<>());
+
+        // Initialize the EmbedBuilder
+        EmbedBuilder embed = new EmbedBuilder();
+
+        // Set the title and color of the embed
+        embed.setTitle("🏆 Ranked Players Leaderboard");
+        embed.setColor(Color.BLUE); // Set a neutral blue color for the leaderboard
+
+        // Define medal emojis
+        String goldMedal = "\uD83E\uDD47";   // 🥇
+        String silverMedal = "\uD83E\uDD48"; // 🥈
+        String bronzeMedal = "\uD83E\uDD49"; // 🥉
+
+        // Build the table header for the embed
+        StringBuilder tableBuilder = new StringBuilder();
+        tableBuilder.append("```");
+        tableBuilder.append(String.format("%-5s %-25s %-20s%n", "Rank", "Player", "Rank"));
+        tableBuilder.append(String.format("%-5s %-25s %-20s%n", "----", "-------------------------", "--------------------"));
+
+        int position = 1;
+        for (Document player : players) {
+            String name = player.getString("name");
+            String tagline = player.getString("tagline");
+            String rank = player.getString("rank");
+            int elo = player.getInteger("elo", 0);
+
+            // Assign medals to top 3 players
+            String medal = "";
+            if (position == 1) {
+                medal = goldMedal + " ";
+            } else if (position == 2) {
+                medal = silverMedal + " ";
+            } else if (position == 3) {
+                medal = bronzeMedal + " ";
+            }
+
+            // Append each player's data to the table with an extra newline for spacing
+            tableBuilder.append(String.format("%-5d %-25s %-20s%n%n", position, medal + name + "#" + tagline, rank));
+
+            position++;
+        }
+        tableBuilder.append("```");
+
+        // Add the table to the embed
+        embed.setDescription(tableBuilder.toString());
+
+        // Set the footer with additional information
+        embed.setFooter("Data fetched from the server ranks collection.", null);
+
+        // Add a timestamp
+        embed.setTimestamp(java.time.Instant.now());
+
+        return embed.build();
+    }
+
+
+
+
 
     // Method to compute elo from rank string
     private int computeElo(String rankString) {
@@ -546,7 +558,7 @@ public class RankService {
         sb.append("Resultado: " + (completedGameInfo.getWin() ? "VICTORIA" : "DERROTA") + "\n");
         sb.append("Jugadores en la partida:\n");
         sb.append("```\n"); // Start of code block
-        sb.append(String.format("%-20s %-10s %-5s\n", "Player", "Champion", "KDA"));
+        sb.append(String.format("%-20s %-10s %-5s\n", "Jugadoe", "Campeón", "KDA"));
         sb.append(String.format("%-20s %-10s %-5s\n", "--------------------", "----------", "----"));
         for (CompletedGameInfoParticipant participant : completedGameInfo.getParticipants()) {
             sb.append(String.format("%-20s %-10s %-5s\n", participant.getPlayerName(), participant.getChampion(), participant.getKda()));
@@ -583,5 +595,73 @@ public class RankService {
 
             return sb.toString();
         }
+
+    private MessageEmbed buildEmbedMessage(CompletedGameInfo completedGameInfo) {
+        // Initialize the EmbedBuilder
+        EmbedBuilder embed = new EmbedBuilder();
+
+        // Set the color based on the game result: green for victory, red for defeat
+        embed.setColor(completedGameInfo.getWin() ? Color.GREEN : Color.RED);
+
+        // Set the title of the embed
+        embed.setTitle("🎉 Partida Finalizada!");
+
+        // Set the description with the game mode
+        embed.setDescription("**Modo de juego:** " + completedGameInfo.getQueueType());
+
+        // Add the result as a field
+        embed.addField("Resultado", completedGameInfo.getWin() ? "🏆 VICTORIA" : "💀 DERROTA", true);
+
+        // Build the players table within a code block for formatting
+        StringBuilder tableBuilder = new StringBuilder();
+        tableBuilder.append("```");
+        tableBuilder.append(String.format("%-20s %-15s %-5s%n", "Jugador", "Campeón", "KDA"));
+        tableBuilder.append(String.format("%-20s %-15s %-5s%n", "--------------------", "---------------", "----"));
+
+        for (CompletedGameInfoParticipant participant : completedGameInfo.getParticipants()) {
+            tableBuilder.append(String.format("%-20s %-15s %-5s%n",
+                    participant.getPlayerName(),
+                    participant.getChampion(),
+                    participant.getKda()));
+        }
+
+        tableBuilder.append("```");
+
+        // Add the players table as a field
+        embed.addField("Jugadores en la partida", tableBuilder.toString(), false);
+
+        // Determine the footer message based on game mode and result
+        String footerMessage = "";
+        String queueType = completedGameInfo.getQueueType().toUpperCase();
+
+        switch (queueType) {
+            case "ARAM":
+                footerMessage = completedGameInfo.getWin()
+                        ? "El putísimo amo, maestro de todos los campeones, el Faker de los ARAMs! 🏅"
+                        : "Mala suerte, no te han sonreído los dados. 🎲";
+                break;
+            case "RANKED_SOLO/DUO":
+                footerMessage = completedGameInfo.getWin()
+                        ? "Da gracias por esos LP's que buena falta te hacen. 📈"
+                        : "Recuerda, ¡JUNGLE DIFF! 🌿";
+                break;
+            case "RANKED_FLEX":
+                footerMessage = completedGameInfo.getWin()
+                        ? "EL terror de las Flex, ¡T1 en su prime! 🏆"
+                        : "Damian no podía rotar, qué le vamos a hacer. 🤷‍♂️";
+                break;
+            default:
+                footerMessage = "¡GG! 🎮";
+                break;
+        }
+
+        // Set the footer with a lightbulb emoji and the dynamic message
+        embed.setFooter("💡 " + footerMessage);
+
+        // Optionally, add a timestamp to the embed
+        embed.setTimestamp(java.time.Instant.now());
+
+        return embed.build();
+    }
 
 }

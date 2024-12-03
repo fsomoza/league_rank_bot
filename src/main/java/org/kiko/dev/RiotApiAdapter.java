@@ -133,11 +133,11 @@ public class RiotApiAdapter {
         List<CompletedGameInfoParticipant> completedGameInfoParticipants = new ArrayList<>();
         completedGameInfo.setParticipants(completedGameInfoParticipants);
 
-        // Encode the PUUID to ensure it's safe for use in a URL
-        String encodedPuuid = URLEncoder.encode(gameId, StandardCharsets.UTF_8);
+        // Encode the gameId to ensure it's safe for use in a URL
+        String encodedGameId = URLEncoder.encode(gameId, StandardCharsets.UTF_8);
 
         // Complete the endpoint by adding '/ids' and the query parameters
-        String endpoint = String.format("/lol/match/v5/matches/%s", encodedPuuid);
+        String endpoint = String.format("/lol/match/v5/matches/%s", encodedGameId);
 
 
         HttpRequest request = HttpRequest.newBuilder()
@@ -270,7 +270,7 @@ public class RiotApiAdapter {
                         entry.getRank(),
                         entry.getLeaguePoints());
             } else {
-                return "No tienes rango, juega rankeds maricón";
+                return "JUEGA RANKEDS";
             }
         } else {
             handleErrorResponse(response);
