@@ -69,7 +69,7 @@ public class RiotApiAdapter {
         }
     }
 
-    public CurrentGameInfo checkIfPlayerIsInGame(String puuid, HashMap<String, String> playersMap) throws Exception {
+    public CurrentGameInfo checkIfPlayerIsInGame(String puuid, Map<String, String> playersMap) throws Exception {
 
         CurrentGameInfo currentGameInfo = new CurrentGameInfo();
 
@@ -119,7 +119,7 @@ public class RiotApiAdapter {
         }
     }
 
-    public CompletedGameInfo checkCompletedGame(String gameId, HashSet<String> participantPuuids) throws Exception {
+    public CompletedGameInfo checkCompletedGame(String gameId, Set<String> participantPuuids) throws Exception {
 
         //TODO: need to cover casuistic where players are in opposite teams
 
