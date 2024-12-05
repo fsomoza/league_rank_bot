@@ -43,6 +43,7 @@ public class ReminderBot extends ListenerAdapter {
                 .enableCache(CacheFlag.ACTIVITY)
                 .build();
 
+
         // Wait until the bot is ready
         jda.awaitReady();
 

@@ -1,23 +1,23 @@
 package org.kiko.dev;
 
 public class AccountInfo {
-    private String name;
+    private String gameName;
     private String tagLine;
     private String puuid;
 
     //constructor
-    public AccountInfo(String name){
-        this.name = name;
+    public AccountInfo(String gameName){
+        this.gameName = gameName;
     }
 
     public AccountInfo() {
     }
-    public String getName() {
-        return name;
+    public String getGameName() {
+        return gameName;
     }
 
-    public void setName(String name) {
-        this.name = name;
+    public void setGameName(String gameName) {
+        this.gameName = gameName;
     }
 
     public String getTagLine() {

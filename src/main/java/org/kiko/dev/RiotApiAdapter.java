@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
 
 import java.lang.reflect.Type;
+import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -45,8 +46,6 @@ public class RiotApiAdapter {
 
     public AccountInfo getPuuid(String name, String tagLine) throws Exception {
 
-
-
         String encodedGameName = URLEncoder.encode(name, StandardCharsets.UTF_8);
         String encodedTagLine = URLEncoder.encode(tagLine, StandardCharsets.UTF_8);
         String endpoint = String.format("/riot/account/v1/accounts/by-riot-id/%s/%s",
@@ -61,13 +60,8 @@ public class RiotApiAdapter {
         HttpResponse<String> response = client.send(request,
                 HttpResponse.BodyHandlers.ofString());
 
-        if (response.statusCode() == 200) {
-            JsonObject jsonObject = gson.fromJson(response.body(), JsonObject.class);
-            AccountInfo accountInfo = new AccountInfo();
-            accountInfo.setPuuid(jsonObject.get("puuid").getAsString());
-            accountInfo.setName(jsonObject.get("gameName").getAsString());
-            accountInfo.setTagLine(jsonObject.get("tagLine").getAsString());
-            return accountInfo;
+        if (response.statusCode() == HttpURLConnection.HTTP_OK) {
+            return gson.fromJson(response.body(), AccountInfo.class);
         } else {
             System.out.println("peta aqui");
             handleErrorResponse(response);
@@ -75,7 +69,7 @@ public class RiotApiAdapter {
         }
     }
 
-    public CurrentGameInfo checkWhoInGame(String puuid, HashMap<String, AccountInfo> playersMap) throws Exception {
+    public CurrentGameInfo checkIfPlayerIsInGame(String puuid, HashMap<String, String> playersMap) throws Exception {
 
         CurrentGameInfo currentGameInfo = new CurrentGameInfo();
 
@@ -90,7 +84,7 @@ public class RiotApiAdapter {
         HttpResponse<String> response = client.send(request,
                 HttpResponse.BodyHandlers.ofString());
 
-        if (response.statusCode() == 200) {
+        if (response.statusCode() == HttpURLConnection.HTTP_OK) {
             JsonObject jsonObject = gson.fromJson(response.body(), JsonObject.class);
             // Ensure you retrieve the string value for comparison
 
@@ -111,7 +105,7 @@ public class RiotApiAdapter {
                         Participant participantObj = new Participant();
                         participantObj.setPuuid(participantPuuid);
                         participantObj.setChampionId(participant.get("championId").getAsString());
-                        participantObj.setPlayerName(playersMap.get(participantPuuid).getName());
+                        participantObj.setPlayerName(playersMap.get(participantPuuid));
                         participants.add(participantObj);
                         currentGameInfo.setParticipants(participants);
                         playersMap.remove(participantPuuid);
@@ -149,7 +143,7 @@ public class RiotApiAdapter {
         HttpResponse<String> response = client.send(request,
                 HttpResponse.BodyHandlers.ofString());
 
-        if (response.statusCode() == 200) {
+        if (response.statusCode() == HttpURLConnection.HTTP_OK) {
             JsonObject jsonObject = gson.fromJson(response.body(), JsonObject.class);
             JsonObject info =  jsonObject.get("info").getAsJsonObject();
             JsonArray participants = info.get("participants").getAsJsonArray();
@@ -178,8 +172,6 @@ public class RiotApiAdapter {
 
     public String searchGameId(String puuid, String gameId) throws Exception {
 
-//        String endpoint = String.format("lol/match/v5/matches/by-puuid/%s",
-//                URLEncoder.encode(puuid, StandardCharsets.UTF_8));
 
         // Encode the PUUID to ensure it's safe for use in a URL
         String encodedPuuid = URLEncoder.encode(puuid, StandardCharsets.UTF_8);
@@ -188,9 +180,6 @@ public class RiotApiAdapter {
         String endpoint = String.format("/lol/match/v5/matches/by-puuid/%s/ids?start=0&count=30", encodedPuuid);
 
         // Build the full URI
-        URI uri = URI.create(BASE_URL + endpoint);
-
-
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(BASE_URL + endpoint))
                 .header("X-Riot-Token", API_KEY)
@@ -200,7 +189,7 @@ public class RiotApiAdapter {
         HttpResponse<String> response = client.send(request,
                 HttpResponse.BodyHandlers.ofString());
 
-        if (response.statusCode() == 200) {
+        if (response.statusCode() == HttpURLConnection.HTTP_OK) {
             // Parse the response body as a JSON array
             JsonArray matches = gson.fromJson(response.body(), JsonArray.class);
 
@@ -233,7 +222,7 @@ public class RiotApiAdapter {
         HttpResponse<String> response = client.send(request,
                 HttpResponse.BodyHandlers.ofString());
 
-        if (response.statusCode() == 200) {
+        if (response.statusCode() == HttpURLConnection.HTTP_OK) {
             JsonObject jsonObject = gson.fromJson(response.body(), JsonObject.class);
             return jsonObject.get("id").getAsString();
         } else {
@@ -255,7 +244,7 @@ public class RiotApiAdapter {
         HttpResponse<String> response = client.send(request,
                 HttpResponse.BodyHandlers.ofString());
 
-        if (response.statusCode() == 200) {
+        if (response.statusCode() == HttpURLConnection.HTTP_OK) {
             Type listType = new TypeToken<List<LeagueEntry>>() {}.getType();
             List<LeagueEntry> entries = gson.fromJson(response.body(), listType);
 
@@ -307,22 +296,6 @@ public class RiotApiAdapter {
         public String getRank() { return rank; }
         public int getLeaguePoints() { return leaguePoints; }
     }
-
-    private static class GameInfo {
-        private String queueType;
-        private String champion;
-
-        private String kda;
-
-        private String result;
-
-        // Getters
-        public String getQueueType() { return queueType; }
-        public String getChampion() { return champion; }
-        public String getKda() { return kda; }
-        public String getResult() { return result; }
-    }
-
 
 
 }

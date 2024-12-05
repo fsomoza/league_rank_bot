@@ -7,7 +7,6 @@ import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.model.Sorts;
 import net.dv8tion.jda.api.EmbedBuilder;
@@ -16,13 +15,10 @@ import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
-import net.dv8tion.jda.api.requests.restaction.MessageCreateAction;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import org.bson.Document;
-import org.kiko.dev.MongoDbAdapter;
-import org.kiko.dev.RiotApiAdapter;
 
 import java.awt.*;
 import java.io.IOException;
@@ -71,14 +67,14 @@ public class RankService {
             throw new IllegalArgumentException("Invalid format. Use: /rank <name> <tag>");
         }
 
-        // Fetch data from Riot API
+        // Fetch player's UUID from Riot API
         AccountInfo accountInfo = riotApiAdapter.getPuuid(name, tagline);
         System.out.println("PUUID: " + accountInfo.getPuuid());
         String encryptedSummonerId = riotApiAdapter.getEncryptedSummonerId(accountInfo.getPuuid());
         String rank = riotApiAdapter.getSoloQueueRank(encryptedSummonerId);
 
         // Save or update the player's rank in MongoDB
-        savePlayerRank(accountInfo.getPuuid(), accountInfo.getName(), accountInfo.getTagLine(), rank, encryptedSummonerId);
+        savePlayerRank(accountInfo.getPuuid(), accountInfo.getGameName(), accountInfo.getTagLine(), rank, encryptedSummonerId);
 
         return rank;
     }
@@ -90,6 +86,12 @@ public class RankService {
 
         Guild guild = jda.getGuildById("1304851342497546372");
         TextChannel channel = guild.getTextChannelById("1312125144659132416");
+
+        //TODO: NEED ENV VARIABLES
+        //testing server
+//        Guild guild = jda.getGuildById("1310689513894318121");
+//        TextChannel channel = guild.getTextChannelById("1310689515899322449");
+
         MongoDatabase database = mongoDbAdapter.getDatabase();
 
         MongoCollection<Document> serverRanksCollection = database.getCollection("serverRanks");
@@ -176,11 +178,11 @@ public class RankService {
         // in this game, are in the players list. If they are, we add them to the  playersInGame set
         // so we don't check them again. Also, we can then notify they are playing together
 
-        HashMap<String, AccountInfo> playersMap = new HashMap<>();
+        HashMap<String, String> playersMap = new HashMap<>();
         for (Document playerDoc : players) {
             String puuid = playerDoc.getString("puuid");
             if (puuid != null) {
-                playersMap.put(puuid, new AccountInfo(playerDoc.getString("name")));
+                playersMap.put(puuid, playerDoc.getString("name"));
             }
         }
 
@@ -196,7 +198,7 @@ public class RankService {
             }
 
             if (!playersInGame.contains(puuid) && playersMap.containsKey(puuid)) {
-                CurrentGameInfo currentGameInfo = riotApiAdapter.checkWhoInGame(puuid, playersMap);
+                CurrentGameInfo currentGameInfo = riotApiAdapter.checkIfPlayerIsInGame(puuid, playersMap);
                 if (currentGameInfo != null) {
 
                      List<Participant> participants = currentGameInfo.getParticipants();
