@@ -127,6 +127,8 @@ public class RiotApiAdapter {
         List<CompletedGameInfoParticipant> completedGameInfoParticipants = new ArrayList<>();
         completedGameInfo.setParticipants(completedGameInfoParticipants);
 
+        Boolean win = null;
+
         // Encode the gameId to ensure it's safe for use in a URL
         String encodedGameId = URLEncoder.encode(gameId, StandardCharsets.UTF_8);
 
@@ -151,11 +153,16 @@ public class RiotApiAdapter {
                 JsonObject participant = participantElement.getAsJsonObject();
                 String participantPuuid = participant.get("puuid").getAsString();
                 if (participantPuuids.contains(participantPuuid)) {
+
+                   if (win == null){
+                       win = participant.get("win").getAsBoolean();
+                   }
+
                     JsonObject player = participant.getAsJsonObject();
                     CompletedGameInfoParticipant completedGameInfoParticipant = new CompletedGameInfoParticipant();
                     completedGameInfoParticipant.setPlayerName(player.get("riotIdGameName").getAsString());
                     completedGameInfoParticipant.setChampion(player.get("championName").getAsString());
-                    completedGameInfo.setWin(player.get("win").getAsBoolean());
+                    //completedGameInfo.setWin(player.get("win").getAsBoolean());
                     String kills = player.get("kills").getAsString();
                     String deaths = player.get("deaths").getAsString();
                     String assists = player.get("assists").getAsString();
@@ -163,8 +170,11 @@ public class RiotApiAdapter {
                     completedGameInfoParticipants.add(completedGameInfoParticipant);
                 }
             }
+            completedGameInfo.setWin(win);
             return completedGameInfo;
         }else{
+            //handleErrorResponse(response);
+            System.out.println(response.body());
             return null;
         }
 

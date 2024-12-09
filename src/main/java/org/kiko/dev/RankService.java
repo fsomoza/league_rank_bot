@@ -243,13 +243,16 @@ public class RankService {
                     CompletedGameInfo completedGameInfo = riotApiAdapter.checkCompletedGame(foundGameId, participantPuuids);
                     completedGameInfo.setQueueType(gameDoc.getString("queueType"));
 
-                    Message message = channel.sendMessageEmbeds(buildEmbedMessage(completedGameInfo))
+                    channel.sendMessageEmbeds(buildEmbedMessage(completedGameInfo))
                             .setMessageReference(gameDoc.getString("messageId"))
-                            .complete();
-
-                    if (message != null) {
-                        gamesInProgressCollection.deleteOne(new Document("id", gameId));
-                    }
+                            .queue(message -> {
+                                //TODO maybe implement a retry mechanism here in case the message is not sent
+                                // also need to think about possible race conditions and how to handle them
+                                gamesInProgressCollection.deleteOne(new Document("id", gameId));
+                            }, failure -> {
+                                // Handle any errors that occurred when trying to send the message
+                                failure.printStackTrace();
+                            });
                 } else {
                     // Game still in progress
                     for (Document participant : participants) {
@@ -303,18 +306,32 @@ public class RankService {
                     .append("playerName", participant.getPlayerName()));
         }
 
-        Message message = channel.sendMessageEmbeds(buildOngoingGameEmbed(currentGameInfo, participants)).complete();
+        channel.sendMessageEmbeds(buildOngoingGameEmbed(currentGameInfo, participants))
+                .queue(message -> {
+                    //TODO maybe implement a retry mechanism here in case the message is not sent
+                    // also need to think about possible race conditions and how to handle them
 
-        Document gameDoc = new Document("id", currentGameInfo.getGameId())
-                .append("queueType", getQueueType(currentGameInfo.getQueueType()))
-                .append("participants", participantDocs)
-                .append("messageId", message.getId());
+                    // This block is executed asynchronously once the message is sent
+                    String messageId = message.getId();
 
-        gamesInProgressCollection.replaceOne(
-                new Document("id", currentGameInfo.getGameId()),
-                gameDoc,
-                new ReplaceOptions().upsert(true)
-        );
+                    Document gameDoc = new Document("id", currentGameInfo.getGameId())
+                            .append("queueType", getQueueType(currentGameInfo.getQueueType()))
+                            .append("participants", participantDocs)
+                            .append("messageId", messageId);
+
+                    gamesInProgressCollection.replaceOne(
+                            new Document("id", currentGameInfo.getGameId()),
+                            gameDoc,
+                            new ReplaceOptions().upsert(true)
+                    );
+                }, failure -> {
+                    // Handle any errors that occurred when trying to send the message
+                    failure.printStackTrace();
+                });
+
+
+
+
     }
 
     /**
