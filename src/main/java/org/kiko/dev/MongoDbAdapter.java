@@ -8,14 +8,20 @@ import com.mongodb.client.MongoDatabase;
 
 public class MongoDbAdapter {
 
-    private static final String CONNECTION_STRING = "mongodb+srv://kikosomotri:6AEazclsVOqsAni1@cluster0.nyg2m.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
-    private static final String DATABASE_NAME = "mmgvs"; // Replace with your database name
+
 
     private final MongoClient mongoClient;
     private final MongoDatabase database;
 
+    private final String CONNECTION_STRING;
+    private final String DATABASE_NAME;
+
     // Private constructor to prevent instantiation
     private MongoDbAdapter() {
+        this.CONNECTION_STRING = ConfigurationHolder.getProperty("mongodb.connection.string");
+        this.DATABASE_NAME = ConfigurationHolder.getProperty("mongodb.database.name");
+
+
         ConnectionString connectionString = new ConnectionString(CONNECTION_STRING);
         MongoClientSettings settings = MongoClientSettings.builder()
                 .applyConnectionString(connectionString)

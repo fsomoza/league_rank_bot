@@ -21,11 +21,10 @@ import java.util.List;
 
 public class ReminderBot extends ListenerAdapter {
 
-
-
     public final RankService rankService;
 
     private static final String PREFIX = "!rank";
+
 
     private JDA jda;  // Instance variable to hold the JDA object
 
@@ -36,7 +35,8 @@ public class ReminderBot extends ListenerAdapter {
 
 
     public static void main(String[] args) throws LoginException, InterruptedException {
-        JDA jda = JDABuilder.createDefault("MTMwNzE4ODA4NTcyMDc0ODE1Mg.GlbVvQ.TTd3-FbD1FemldbNGq3IuEZI6m0_Plc8wfZ9Gg")
+
+        JDA jda = JDABuilder.createDefault(ConfigurationHolder.getProperty("discord.bot.token"))
                 .setEventManager(new AsyncEventManager())
                 .enableIntents(GatewayIntent.GUILD_MEMBERS, GatewayIntent.GUILD_PRESENCES, GatewayIntent.MESSAGE_CONTENT)
                 .setMemberCachePolicy(MemberCachePolicy.ALL)
@@ -140,11 +140,7 @@ public class ReminderBot extends ListenerAdapter {
             case "ranking":
                 event.deferReply().queue(); // For longer operations
                 try {
-                    //String ranking = rankService.getRankedPlayerList();
                     event.getHook().sendMessageEmbeds(rankService.getRankedPlayerListEmbed()).queue();
-                    //event.getHook().sendMessage(ranking).queue();
-                } catch (IllegalArgumentException e) {
-                    event.getHook().sendMessage(e.getMessage()).queue();
                 } catch (Exception e) {
                     event.getHook().sendMessage("Error getting rank information: " + e.getMessage()).queue();
                 }
@@ -159,7 +155,6 @@ public class ReminderBot extends ListenerAdapter {
 
         // Log the duration
         System.out.println("Rank command executed in " + millis + " ms");
-       // });
 
     }
 

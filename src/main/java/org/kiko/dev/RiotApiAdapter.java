@@ -21,7 +21,8 @@ public class RiotApiAdapter {
 
     private static final String BASE_URL = "https://europe.api.riotgames.com";
     private static final String ACCOUNT_BASE_URL = "https://euw1.api.riotgames.com";
-    private static final String API_KEY = "RGAPI-9c2ec92d-647c-486e-8264-5a6b6cef9526";
+    private  final String RIOT_API_KEY;
+
 
     private final HttpClient client;
     private final Gson gson;
@@ -32,6 +33,7 @@ public class RiotApiAdapter {
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
         this.gson = new Gson();
+       RIOT_API_KEY = ConfigurationHolder.getProperty("riot.api.key");
     }
 
     // Holder class for lazy-loaded singleton instance
@@ -51,9 +53,10 @@ public class RiotApiAdapter {
         String endpoint = String.format("/riot/account/v1/accounts/by-riot-id/%s/%s",
                 encodedGameName, encodedTagLine);
 
+        //TODO VERY REPEATED CODE, MAYBE NEEDS TO BE ABSTRACTED?
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(BASE_URL + endpoint))
-                .header("X-Riot-Token", API_KEY)
+                .header("X-Riot-Token", RIOT_API_KEY)
                 .GET()
                 .build();
 
@@ -78,7 +81,7 @@ public class RiotApiAdapter {
                 URLEncoder.encode(puuid, StandardCharsets.UTF_8));
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
-                .header("X-Riot-Token", API_KEY)
+                .header("X-Riot-Token", RIOT_API_KEY)
                 .GET()
                 .build();
         HttpResponse<String> response = client.send(request,
@@ -138,7 +141,7 @@ public class RiotApiAdapter {
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(BASE_URL + endpoint))
-                .header("X-Riot-Token", API_KEY)
+                .header("X-Riot-Token", RIOT_API_KEY)
                 .GET()
                 .build();
 
@@ -192,7 +195,7 @@ public class RiotApiAdapter {
         // Build the full URI
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(BASE_URL + endpoint))
-                .header("X-Riot-Token", API_KEY)
+                .header("X-Riot-Token", RIOT_API_KEY)
                 .GET()
                 .build();
 
@@ -225,7 +228,7 @@ public class RiotApiAdapter {
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
-                .header("X-Riot-Token", API_KEY)
+                .header("X-Riot-Token", RIOT_API_KEY)
                 .GET()
                 .build();
 
@@ -247,7 +250,7 @@ public class RiotApiAdapter {
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
-                .header("X-Riot-Token", API_KEY)
+                .header("X-Riot-Token", RIOT_API_KEY)
                 .GET()
                 .build();
 

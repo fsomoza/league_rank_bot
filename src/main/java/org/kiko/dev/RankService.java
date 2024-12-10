@@ -52,8 +52,8 @@ public class RankService {
     private static final String CHAMPIONS_COLLECTION = "champions";
 
     // Guild and channel IDs – consider externalizing into configuration
-    private static final String TESTING_GUILD_ID = "1304851342497546372";
-    private static final String TESTING_CHANNEL_ID = "1312125144659132416";
+    private final String GUILD_ID;
+    private final String CHANNEL_ID;
 
     private final RiotApiAdapter riotApiAdapter;
     private final MongoDbAdapter mongoDbAdapter;
@@ -63,6 +63,8 @@ public class RankService {
         this.riotApiAdapter = RiotApiAdapter.getInstance();
         this.mongoDbAdapter = MongoDbAdapter.getInstance();
         this.jda = jda;
+        this.GUILD_ID = ConfigurationHolder.getGuildId();
+        this.CHANNEL_ID = ConfigurationHolder.getChannelId();
     }
 
     /**
@@ -92,8 +94,8 @@ public class RankService {
      * @throws Exception if data retrieval or messaging fails.
      */
     public void checkWhoInGame() throws Exception {
-        Guild guild = jda.getGuildById(TESTING_GUILD_ID);
-        TextChannel channel = guild.getTextChannelById(TESTING_CHANNEL_ID);
+        Guild guild = jda.getGuildById(GUILD_ID);
+        TextChannel channel = guild.getTextChannelById(CHANNEL_ID);
 
         MongoDatabase database = mongoDbAdapter.getDatabase();
         MongoCollection<Document> serverRanksCollection = database.getCollection(SERVER_RANKS_COLLECTION);
