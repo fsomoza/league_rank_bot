@@ -110,6 +110,13 @@ public class RankService {
         // Map player puuid -> player name
         Map<String, String> playersMap = buildPlayersMap(allPlayers);
 
+        //TODO this is an operation that executes every 30 seconds, even if a game ended
+        // its silly to insta check if the player is in a game. I should retrieve the players from the players collection
+        // excluding the ones that are or were in a game in the last 30 seconds. With that,  i would also get rid of the
+        // bug where if the call  searchGameId() to the api fails, the players wont be added to the playersInGame list
+        // and the player will be considered as not in a game, so the message will be sent to the channel again, because
+        // i could get rid of this condition :  if (!playersInGame.contains(puuid)
+
         // Check if players are currently in a game
         for (Document playerDoc : allPlayers) {
             String playerName = playerDoc.getString("name");
@@ -228,6 +235,8 @@ public class RankService {
      */
     private Set<String> handleCompletedGames(TextChannel channel, MongoCollection<Document> gamesInProgressCollection) {
         Set<String> playersInGame = new HashSet<>();
+        //TODO try cath needs to be inside the loop, so if one of the api calls fails, it will not stop the whole thing
+        // also maybe just log the error inside searchGameId() or checkCompletedGame() and continue
         try (MongoCursor<Document> cursor = gamesInProgressCollection.find().iterator()) {
             while (cursor.hasNext()) {
                 Document gameDoc = cursor.next();
