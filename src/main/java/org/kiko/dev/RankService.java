@@ -2,12 +2,13 @@ package org.kiko.dev;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mongodb.MongoException;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.model.ReplaceOptions;
-import com.mongodb.client.model.Sorts;
+import com.mongodb.client.model.*;
+import com.mongodb.client.result.UpdateResult;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Guild;
@@ -18,6 +19,8 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import org.bson.Document;
+import org.bson.conversions.Bson;
+import org.bson.types.ObjectId;
 
 import java.awt.*;
 import java.io.IOException;
@@ -102,20 +105,13 @@ public class RankService {
         MongoCollection<Document> gamesInProgressCollection = database.getCollection(GAMES_IN_PROGRESS_COLLECTION);
 
         // Track players currently in a game
-        Set<String> playersInGame = handleCompletedGames(channel, gamesInProgressCollection);
+        handleCompletedGames(channel, gamesInProgressCollection);
 
         // Retrieve all players by Elo
-        List<Document> allPlayers = fetchAllPlayersByElo(serverRanksCollection);
+        List<Document> allPlayers = fetchAllPlayersAndExcludeTheOnesInGame(serverRanksCollection, gamesInProgressCollection);
 
         // Map player puuid -> player name
         Map<String, String> playersMap = buildPlayersMap(allPlayers);
-
-        //TODO this is an operation that executes every 30 seconds, even if a game ended
-        // its silly to insta check if the player is in a game. I should retrieve the players from the players collection
-        // excluding the ones that are or were in a game in the last 30 seconds. With that,  i would also get rid of the
-        // bug where if the call  searchGameId() to the api fails, the players wont be added to the playersInGame list
-        // and the player will be considered as not in a game, so the message will be sent to the channel again, because
-        // i could get rid of this condition :  if (!playersInGame.contains(puuid)
 
         // Check if players are currently in a game
         for (Document playerDoc : allPlayers) {
@@ -124,10 +120,10 @@ public class RankService {
             if (playerName == null || puuid == null) continue;
 
             // Only check players not known to be in-game
-            if (!playersInGame.contains(puuid) && playersMap.containsKey(puuid)) {
+            if (playersMap.containsKey(puuid)) {
                 CurrentGameInfo currentGameInfo = riotApiAdapter.checkIfPlayerIsInGame(puuid, playersMap);
                 if (currentGameInfo != null) {
-                    handlePlayerInGame(currentGameInfo, channel, gamesInProgressCollection, playersInGame);
+                    handlePlayerInGame(currentGameInfo, channel, gamesInProgressCollection);
                 }
             }
         }
@@ -280,11 +276,33 @@ public class RankService {
     /**
      * Fetch all players sorted by ELO.
      */
-    private List<Document> fetchAllPlayersByElo(MongoCollection<Document> serverRanksCollection) {
-        return serverRanksCollection.find()
-                .sort(Sorts.descending("elo"))
+    private List<Document> fetchAllPlayersAndExcludeTheOnesInGame(
+            MongoCollection<Document> serverRanksCollection,
+            MongoCollection<Document> gamesInProgressCollection) {
+
+        List<String> participantIdsToExclude = new ArrayList<>();
+
+        gamesInProgressCollection.find().forEach(doc -> {
+            List<Document> participants = doc.getList("participants", Document.class);
+            if (participants != null) {
+                participants.forEach(participant -> {
+                    String puuid = participant.getString("puuid");
+                    if (puuid != null && !puuid.isEmpty()) {
+                        participantIdsToExclude.add(puuid);
+                    }
+                });
+            }
+        });
+
+        // If participantIdsToExclude is empty, avoid using the $nin filter which can be inefficient
+        if (participantIdsToExclude.isEmpty()) {
+            return serverRanksCollection.find().into(new ArrayList<>());
+        }
+
+        return serverRanksCollection.find(Filters.nin("puuid", participantIdsToExclude))
                 .into(new ArrayList<>());
     }
+
 
     /**
      * Constructs a puuid -> name map from the player documents.
@@ -304,13 +322,12 @@ public class RankService {
      * Handles a current game situation by notifying the channel and updating the DB.
      */
     private void handlePlayerInGame(CurrentGameInfo currentGameInfo, TextChannel channel,
-                                    MongoCollection<Document> gamesInProgressCollection, Set<String> playersInGame) {
+                                    MongoCollection<Document> gamesInProgressCollection) {
 
         List<Participant> participants = currentGameInfo.getParticipants();
         List<Document> participantDocs = new ArrayList<>();
 
         for (Participant participant : participants) {
-            playersInGame.add(participant.getPuuid());
 
             participantDocs.add(new Document("puuid", participant.getPuuid())
                     .append("championId", participant.getChampionId())
@@ -325,16 +342,36 @@ public class RankService {
                     // This block is executed asynchronously once the message is sent
                     String messageId = message.getId();
 
-                    Document gameDoc = new Document("id", currentGameInfo.getGameId())
-                            .append("queueType", getQueueType(currentGameInfo.getQueueType()))
-                            .append("participants", participantDocs)
-                            .append("messageId", messageId);
+                    // Define the filter to find the existing game document by gameId
+                    Bson filter = Filters.eq("id", currentGameInfo.getGameId());
 
-                    gamesInProgressCollection.replaceOne(
-                            new Document("id", currentGameInfo.getGameId()),
-                            gameDoc,
-                            new ReplaceOptions().upsert(true)
+                    // Define the update operations:
+                    // - Set or update the queueType and messageId
+                    // - Add new participants to the participants array without duplicating existing ones
+                    Bson update = Updates.combine(
+                            Updates.set("queueType", getQueueType(currentGameInfo.getQueueType())),
+                            Updates.set("messageId", messageId),
+                            Updates.addEachToSet("participants", participantDocs)
                     );
+
+                    try {
+                        // Perform the update with upsert option
+                        UpdateResult result = gamesInProgressCollection.updateOne(
+                                filter,
+                                update,
+                                new UpdateOptions().upsert(true)
+                        );
+
+                        //log the success or perform further actions
+                        System.out.println("Game document updated successfully. Matched: "
+                                + result.getMatchedCount()
+                                + ", Modified: " + result.getModifiedCount());
+
+                    } catch (MongoException e) {
+                        // Handle any errors that occurred during the update
+                        e.printStackTrace();
+
+                    }
                 }, failure -> {
                     // Handle any errors that occurred when trying to send the message
                     failure.printStackTrace();
