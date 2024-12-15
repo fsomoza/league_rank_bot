@@ -192,16 +192,6 @@ public class RankService {
         MongoCollection<Document> collection = database.getCollection(SERVER_RANKS_COLLECTION);
 
         List<Document> players = collection.find().sort(Sorts.descending("elo")).into(new ArrayList<>());
-        //TODO refactor this. It's a hack to make sure the player ranks are updated
-        players.forEach(player ->
-                {
-                    try {
-                        getPlayerRank(player.getString("name"), player.getString("tagline"));
-                    } catch (Exception e) {
-                        throw new RuntimeException(e);
-                    }
-                }
-                );
 
         return buildRankedPlayerEmbed(players);
     }
@@ -232,6 +222,27 @@ public class RankService {
                 new ReplaceOptions().upsert(true)
         );
     }
+
+    private void updatePlayerRank(String puuid, String rank) {
+
+        // Get the database and collection
+        MongoDatabase database = mongoDbAdapter.getDatabase();
+        MongoCollection<Document> collection = database.getCollection(SERVER_RANKS_COLLECTION);
+
+        // Create the filter to find the document by "puuid"
+        Document filter = new Document("puuid", puuid);
+
+        // Create the update document with $set to update "rank" and "elo"
+        Document update = new Document("$set", new Document("rank", rank).append("elo", computeElo(rank)));
+
+        // Perform the update with upsert option
+        collection.updateOne(
+                filter,
+                update,
+                new UpdateOptions().upsert(true)
+        );
+    }
+
 
     /**
      * Handles games that have potentially completed and sends a completion message if so.
@@ -268,11 +279,24 @@ public class RankService {
                                 // Handle any errors that occurred when trying to send the message
                                 failure.printStackTrace();
                             });
-                } else {
-                    // Game still in progress
-                    for (Document participant : participants) {
-                        playersInGame.add(participant.getString("puuid"));
-                    }
+
+                    //TODO update the player rank
+
+                    List<String> participantPuuidsList = new ArrayList<>(participantPuuids);
+
+                    // Create a filter using the $in operator to match any puuid in the list
+                    Bson filter = Filters.in("puuid", participantPuuidsList);
+                    // retrieve the players
+                   mongoDbAdapter.getDatabase().getCollection(SERVER_RANKS_COLLECTION).find(filter).forEach(player -> {
+                       try {
+                           String rank = riotApiAdapter.getSoloQueueRank(player.getString("encryptedSummonerId"));
+                           updatePlayerRank(player.getString("puuid"), rank);
+                       } catch (Exception e) {
+                           throw new RuntimeException(e);
+                       }
+                   });
+
+
                 }
             }
         } catch (Exception e) {
