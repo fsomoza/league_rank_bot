@@ -3,7 +3,6 @@ package org.kiko.dev;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mongodb.MongoException;
-import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
@@ -12,7 +11,6 @@ import com.mongodb.client.result.UpdateResult;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Guild;
-import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import okhttp3.OkHttpClient;
@@ -20,7 +18,6 @@ import okhttp3.Request;
 import okhttp3.Response;
 import org.bson.Document;
 import org.bson.conversions.Bson;
-import org.bson.types.ObjectId;
 
 import java.awt.*;
 import java.io.IOException;
@@ -195,6 +192,17 @@ public class RankService {
         MongoCollection<Document> collection = database.getCollection(SERVER_RANKS_COLLECTION);
 
         List<Document> players = collection.find().sort(Sorts.descending("elo")).into(new ArrayList<>());
+        //TODO refactor this. It's a hack to make sure the player ranks are updated
+        players.forEach(player ->
+                {
+                    try {
+                        getPlayerRank(player.getString("name"), player.getString("tagline"));
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+                );
+
         return buildRankedPlayerEmbed(players);
     }
 
