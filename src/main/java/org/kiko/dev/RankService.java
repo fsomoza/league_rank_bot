@@ -76,6 +76,10 @@ public class RankService {
      * @throws Exception if invalid input or data retrieval fails.
      */
     public String getPlayerRank(String name, String tagline) throws Exception {
+
+        //TODO upgrade this funcionality to save more data from the player, like rank on flex queue as well, wins/losses, most played champions,
+        // winrates, kda, etc.
+
         if (name.isEmpty() || "#".equals(tagline)) {
             throw new IllegalArgumentException("Invalid format. Use: /rank <name> <tag>");
         }
