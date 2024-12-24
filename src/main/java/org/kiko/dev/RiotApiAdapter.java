@@ -280,6 +280,40 @@ public class RiotApiAdapter {
         }
     }
 
+
+    public LeagueEntry getSoloQueusdsdseRank(String encryptedSummonerId) throws Exception {
+        String endpoint = String.format("/lol/league/v4/entries/by-summoner/%s",
+                URLEncoder.encode(encryptedSummonerId, StandardCharsets.UTF_8));
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
+                .header("X-Riot-Token", RIOT_API_KEY)
+                .GET()
+                .build();
+
+        HttpResponse<String> response = client.send(request,
+                HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() == HttpURLConnection.HTTP_OK) {
+            Type listType = new TypeToken<List<LeagueEntry>>() {}.getType();
+            List<LeagueEntry> entries = gson.fromJson(response.body(), listType);
+
+            Optional<LeagueEntry> soloQueue = entries.stream()
+                    .filter(entry -> "RANKED_SOLO_5x5".equals(entry.getQueueType()))
+                    .findFirst();
+
+            if (soloQueue.isPresent()) {
+                LeagueEntry entry = soloQueue.get();
+                return entry;
+            } else {
+                return null;
+            }
+        } else {
+            handleErrorResponse(response);
+            return null;
+        }
+    }
+
     // Helper method to handle non-200 responses
     private void handleErrorResponse(HttpResponse<String> response) throws Exception {
         int statusCode = response.statusCode();
@@ -297,18 +331,49 @@ public class RiotApiAdapter {
     }
 
     // Static nested class for deserializing league entries
-    private static class LeagueEntry {
+    public static class LeagueEntry {
+        private String leagueId;
+        private String summonerId;
         private String queueType;
         private String tier;
         private String rank;
         private int leaguePoints;
+        private int wins;
+        private int losses;
+        private boolean hotStreak;
+        private boolean veteran;
+        private boolean freshBlood;
+        private boolean inactive;
 
         // Getters
+        public String getLeagueId() { return leagueId; }
+        public String getSummonerId() { return summonerId; }
         public String getQueueType() { return queueType; }
         public String getTier() { return tier; }
         public String getRank() { return rank; }
         public int getLeaguePoints() { return leaguePoints; }
+        public int getWins() { return wins; }
+        public int getLosses() { return losses; }
+        public boolean isHotStreak() { return hotStreak; }
+        public boolean isVeteran() { return veteran; }
+        public boolean isFreshBlood() { return freshBlood; }
+        public boolean isInactive() { return inactive; }
+
+        // Setters (if needed)
+        public void setLeagueId(String leagueId) { this.leagueId = leagueId; }
+        public void setSummonerId(String summonerId) { this.summonerId = summonerId; }
+        public void setQueueType(String queueType) { this.queueType = queueType; }
+        public void setTier(String tier) { this.tier = tier; }
+        public void setRank(String rank) { this.rank = rank; }
+        public void setLeaguePoints(int leaguePoints) { this.leaguePoints = leaguePoints; }
+        public void setWins(int wins) { this.wins = wins; }
+        public void setLosses(int losses) { this.losses = losses; }
+        public void setHotStreak(boolean hotStreak) { this.hotStreak = hotStreak; }
+        public void setVeteran(boolean veteran) { this.veteran = veteran; }
+        public void setFreshBlood(boolean freshBlood) { this.freshBlood = freshBlood; }
+        public void setInactive(boolean inactive) { this.inactive = inactive; }
     }
+
 
 
 }

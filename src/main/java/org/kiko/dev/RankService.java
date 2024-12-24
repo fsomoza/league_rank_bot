@@ -88,6 +88,8 @@ public class RankService {
         String encryptedSummonerId = riotApiAdapter.getEncryptedSummonerId(accountInfo.getPuuid());
         String rank = riotApiAdapter.getSoloQueueRank(encryptedSummonerId);
 
+        //RiotApiAdapter.LeagueEntry playerInfo = riotApiAdapter.getSoloQueusdsdseRank(encryptedSummonerId);
+
         savePlayerRank(accountInfo.getPuuid(), accountInfo.getGameName(), accountInfo.getTagLine(), rank, encryptedSummonerId);
         return rank;
     }
@@ -98,15 +100,16 @@ public class RankService {
      * @throws Exception if data retrieval or messaging fails.
      */
     public void checkWhoInGame() throws Exception {
-        Guild guild = jda.getGuildById(GUILD_ID);
-        TextChannel channel = guild.getTextChannelById(CHANNEL_ID);
+        Guild guild = ContextHolder.getGuild();
+        //TextChannel channel = guild.getTextChannelById(CHANNEL_ID);
+        TextChannel textChannel = guild.getTextChannelsByName("game_scanner", true).get(0);
 
         MongoDatabase database = mongoDbAdapter.getDatabase();
-        MongoCollection<Document> serverRanksCollection = database.getCollection(SERVER_RANKS_COLLECTION);
-        MongoCollection<Document> gamesInProgressCollection = database.getCollection(GAMES_IN_PROGRESS_COLLECTION);
+        MongoCollection<Document> serverRanksCollection = database.getCollection(SERVER_RANKS_COLLECTION + "-" + ContextHolder.getGuildId());
+        MongoCollection<Document> gamesInProgressCollection = database.getCollection(GAMES_IN_PROGRESS_COLLECTION + "-" + ContextHolder.getGuildId());
 
         // Track players currently in a game
-        handleCompletedGames(channel, gamesInProgressCollection);
+        handleCompletedGames(textChannel, gamesInProgressCollection);
 
         // Retrieve all players by Elo
         List<Document> allPlayers = fetchAllPlayersAndExcludeTheOnesInGame(serverRanksCollection, gamesInProgressCollection);
@@ -124,7 +127,7 @@ public class RankService {
             if (playersMap.containsKey(puuid)) {
                 CurrentGameInfo currentGameInfo = riotApiAdapter.checkIfPlayerIsInGame(puuid, playersMap);
                 if (currentGameInfo != null) {
-                    handlePlayerInGame(currentGameInfo, channel, gamesInProgressCollection);
+                    handlePlayerInGame(currentGameInfo, textChannel, gamesInProgressCollection);
                 }
             }
         }
@@ -193,7 +196,7 @@ public class RankService {
      */
     public MessageEmbed getRankedPlayerListEmbed() {
         MongoDatabase database = mongoDbAdapter.getDatabase();
-        MongoCollection<Document> collection = database.getCollection(SERVER_RANKS_COLLECTION);
+        MongoCollection<Document> collection = database.getCollection(SERVER_RANKS_COLLECTION + "-" + ContextHolder.getGuildId());
 
         List<Document> players = collection.find().sort(Sorts.descending("elo")).into(new ArrayList<>());
 
@@ -209,7 +212,7 @@ public class RankService {
      */
     private void savePlayerRank(String puuid, String name, String tagline, String rank, String encryptedSummonerId) {
         MongoDatabase database = mongoDbAdapter.getDatabase();
-        MongoCollection<Document> collection = database.getCollection(SERVER_RANKS_COLLECTION);
+        MongoCollection<Document> collection = database.getCollection(SERVER_RANKS_COLLECTION + "-" +ContextHolder.getGuildId());
 
         int elo = computeElo(rank);
         Document playerDoc = new Document("puuid", puuid)
@@ -231,7 +234,7 @@ public class RankService {
 
         // Get the database and collection
         MongoDatabase database = mongoDbAdapter.getDatabase();
-        MongoCollection<Document> collection = database.getCollection(SERVER_RANKS_COLLECTION);
+        MongoCollection<Document> collection = database.getCollection(SERVER_RANKS_COLLECTION + "-" + ContextHolder.getGuildId());
 
         // Create the filter to find the document by "puuid"
         Document filter = new Document("puuid", puuid);
@@ -286,19 +289,24 @@ public class RankService {
 
                     //TODO update the player rank
 
-                    List<String> participantPuuidsList = new ArrayList<>(participantPuuids);
+                    if(gameDoc.getString("queueType").contains("RANKED_SOLO/DUO")){
+                        List<String> participantPuuidsList = new ArrayList<>(participantPuuids);
 
-                    // Create a filter using the $in operator to match any puuid in the list
-                    Bson filter = Filters.in("puuid", participantPuuidsList);
-                    // retrieve the players
-                   mongoDbAdapter.getDatabase().getCollection(SERVER_RANKS_COLLECTION).find(filter).forEach(player -> {
-                       try {
-                           String rank = riotApiAdapter.getSoloQueueRank(player.getString("encryptedSummonerId"));
-                           updatePlayerRank(player.getString("puuid"), rank);
-                       } catch (Exception e) {
-                           throw new RuntimeException(e);
-                       }
-                   });
+                        // Create a filter using the $in operator to match any puuid in the list
+                        Bson filter = Filters.in("puuid", participantPuuidsList);
+                        // retrieve the players
+                        mongoDbAdapter.getDatabase().getCollection(SERVER_RANKS_COLLECTION + "-" + ContextHolder.getGuildId()).find(filter).forEach(player -> {
+                            try {
+                                String rank = riotApiAdapter.getSoloQueueRank(player.getString("encryptedSummonerId"));
+                                updatePlayerRank(player.getString("puuid"), rank);
+                            } catch (Exception e) {
+                                throw new RuntimeException(e);
+                            }
+                        });
+
+                    }
+
+
 
 
                 }

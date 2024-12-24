@@ -5,6 +5,7 @@ import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.events.guild.GuildJoinEvent;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.DefaultMemberPermissions;
@@ -58,7 +59,7 @@ public class ReminderBot extends ListenerAdapter {
 
             guild.upsertCommand(Commands.slash("rank", "Get a player's ranked information")
                     .addOption(OptionType.STRING, "name", "Player's name", true)
-                    .addOption(OptionType.STRING, "tagline", "Player's tagline without #)", true)
+                    .addOption(OptionType.STRING, "tagline", "Player's tagline without #", true)
                     .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
             ).queue();
 
@@ -89,11 +90,7 @@ public class ReminderBot extends ListenerAdapter {
 //
 //        ).queue();
 
-
-
-
-
-        MyScheduledTask scheduledTask = new MyScheduledTask(reminderBot.rankService);
+        MyScheduledTask scheduledTask = new MyScheduledTask(reminderBot.rankService, jda);
         scheduledTask.startScheduledTask();
 
         // Add shutdown hook to stop the scheduler gracefully
@@ -104,22 +101,27 @@ public class ReminderBot extends ListenerAdapter {
 
     @Override
     public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
+        try {
+            // Initialize ContextHolder with guildId
+            String guildId = event.getGuild() != null ? event.getGuild().getId() : null;
+            ContextHolder.setGuildId(guildId);
+
+            // Handle the command
+            handleCommand(event);
+        } finally {
+            // Ensure the ThreadLocal is cleared to prevent memory leaks
+            ContextHolder.clear();
+        }
+    }
+
+
+    private void handleCommand(SlashCommandInteractionEvent event) {
         //print the time
-        //CompletableFuture.runAsync(() -> {
         // Record the start time
         Instant start = Instant.now();
         switch (event.getName()) {
             case "hello":
                 event.reply("Hello! I am your friendly bot!").queue();
-                break;
-            case "hotaru":
-                event.reply("El medio está rotando, no puede hacer nada!").queue();
-                break;
-            case "santi":
-                event.reply("El jungler más pajero!").queue();
-                break;
-            case "kiko":
-                event.reply("El putísimo Deft gallego, un carry natural, poco más que decir.").queue();
                 break;
             case "rank":
                 String name = event.getOption("name").getAsString();
@@ -127,13 +129,14 @@ public class ReminderBot extends ListenerAdapter {
 
                 event.deferReply().queue(); // For longer operations
 
-
                 try {
                     String rank = rankService.getPlayerRank(name, tagline);
                     event.getHook().sendMessage(rank).queue();
                 } catch (IllegalArgumentException e) {
+                    System.out.println(e.getMessage());
                     event.getHook().sendMessage(e.getMessage()).queue();
                 } catch (Exception e) {
+                    System.out.println(e.getMessage());
                     event.getHook().sendMessage("Error getting rank information: " + e.getMessage()).queue();
                 }
                 break;
@@ -142,6 +145,7 @@ public class ReminderBot extends ListenerAdapter {
                 try {
                     event.getHook().sendMessageEmbeds(rankService.getRankedPlayerListEmbed()).queue();
                 } catch (Exception e) {
+                    System.out.println(e.getMessage());
                     event.getHook().sendMessage("Error getting rank information: " + e.getMessage()).queue();
                 }
 
@@ -155,8 +159,80 @@ public class ReminderBot extends ListenerAdapter {
 
         // Log the duration
         System.out.println("Rank command executed in " + millis + " ms");
-
     }
+
+
+    @Override
+    public void onGuildJoin(GuildJoinEvent event) {
+        Guild guild = event.getGuild();
+        registerCommands(guild);
+        System.out.println("Registered commands for new guild: " + guild.getName());
+    }
+
+    private void registerCommands(Guild guild) {
+        guild.upsertCommand(Commands.slash("rank", "Get a player's ranked information")
+                .addOption(OptionType.STRING, "name", "Player's name", true)
+                .addOption(OptionType.STRING, "tagline", "Player's tagline without #", true)
+                .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
+        ).queue(
+                success -> System.out.println("Registered /rank command for guild: " + guild.getName()),
+                error -> System.err.println("Failed to register /rank command for guild: " + guild.getName())
+        );
+
+        guild.upsertCommand(Commands.slash("ranking", "Ranking list of server members")
+                .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
+        ).queue(
+                success -> System.out.println("Registered /ranking command for guild: " + guild.getName()),
+                error -> System.err.println("Failed to register /ranking command for guild: " + guild.getName())
+        );
+    }
+
+
+//    @Override
+//    public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
+//        //print the time
+//        // Record the start time
+//        Instant start = Instant.now();
+//        switch (event.getName()) {
+//            case "hello":
+//                event.reply("Hello! I am your friendly bot!").queue();
+//                break;
+//            case "rank":
+//                String name = event.getOption("name").getAsString();
+//                String tagline = event.getOption("tagline").getAsString();
+//
+//                event.deferReply().queue(); // For longer operations
+//
+//
+//                try {
+//                    String rank = rankService.getPlayerRank(name, tagline);
+//                    event.getHook().sendMessage(rank).queue();
+//                } catch (IllegalArgumentException e) {
+//                    event.getHook().sendMessage(e.getMessage()).queue();
+//                } catch (Exception e) {
+//                    event.getHook().sendMessage("Error getting rank information: " + e.getMessage()).queue();
+//                }
+//                break;
+//            case "ranking":
+//                event.deferReply().queue(); // For longer operations
+//                try {
+//                    event.getHook().sendMessageEmbeds(rankService.getRankedPlayerListEmbed()).queue();
+//                } catch (Exception e) {
+//                    event.getHook().sendMessage("Error getting rank information: " + e.getMessage()).queue();
+//                }
+//
+//                break;
+//        }
+//
+//        Instant end = Instant.now();
+//        // Calculate the duration
+//        Duration duration = Duration.between(start, end);
+//        long millis = duration.toMillis();
+//
+//        // Log the duration
+//        System.out.println("Rank command executed in " + millis + " ms");
+//
+//    }
 
 
     public static void sendMessageToChannel(JDA jda, String guildId, String channelId, String message) {
