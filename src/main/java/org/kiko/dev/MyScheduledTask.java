@@ -25,7 +25,7 @@ public class MyScheduledTask {
 
     public void startScheduledTask() {
         // Run the task every 1 minute with an initial delay of 0
-        scheduler.scheduleAtFixedRate(this::executeTask, 0, 30, TimeUnit.SECONDS);
+        scheduler.scheduleAtFixedRate(this::executeTask, 0, 1, TimeUnit.MINUTES);
     }
 
     private void executeTask() {

@@ -1,21 +1,27 @@
 package org.kiko.dev;
 
 
+import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.Guild;
+import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.events.guild.GuildJoinEvent;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
+import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.DefaultMemberPermissions;
 import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.interactions.commands.build.Commands;
+import net.dv8tion.jda.api.interactions.components.ActionRow;
+import net.dv8tion.jda.api.interactions.components.selections.StringSelectMenu;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.MemberCachePolicy;
 import net.dv8tion.jda.api.utils.cache.CacheFlag;
 
 import javax.security.auth.login.LoginException;
+import java.awt.*;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -73,6 +79,26 @@ public class ReminderBot extends ListenerAdapter {
             for (TextChannel channel : textChannels) {
                 System.out.println("Text Channel Name: " + channel.getName() + ", Channel ID: " + channel.getId());
             }
+
+            if (guild.getId().equals("1310689513894318121")) {
+                guild.upsertCommand(Commands.slash("broadcast", "Send an announcement to all servers")
+                        .addOption(OptionType.STRING, "message", "The message to broadcast", true)
+                        .addOption(OptionType.STRING, "type", "Announcement type (update/maintenance)", true)
+                        .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
+                ).queue(
+                        success -> System.out.println("Registered /broadcast command for admin guild"),
+                        error -> System.err.println("Failed to register /broadcast command for admin guild")
+                );
+
+                guild.upsertCommand(Commands.slash("update", "update")
+                        .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
+                ).queue(
+                        success -> System.out.println("Bien"),
+                        error -> System.err.println("Mal" + error.getMessage())
+                );
+            }
+
+
         }
 
         // Replace with your target guild and channel IDs
@@ -130,8 +156,9 @@ public class ReminderBot extends ListenerAdapter {
                 event.deferReply().queue(); // For longer operations
 
                 try {
-                    String rank = rankService.getPlayerRank(name, tagline);
-                    event.getHook().sendMessage(rank).queue();
+                    MessageEmbed rank = rankService.getPlayerInformation(name, tagline);
+                    event.getHook().sendMessageEmbeds(rank).queue();
+//                    event.getHook().sendMessage(rank).queue();
                 } catch (IllegalArgumentException e) {
                     System.out.println(e.getMessage());
                     event.getHook().sendMessage(e.getMessage()).queue();
@@ -143,12 +170,83 @@ public class ReminderBot extends ListenerAdapter {
             case "ranking":
                 event.deferReply().queue(); // For longer operations
                 try {
-                    event.getHook().sendMessageEmbeds(rankService.getRankedPlayerListEmbed()).queue();
+                    // Create the initial embed with SoloQ rankings
+                    MessageEmbed initialEmbed = rankService.getRankedPlayerListEmbed("soloQ");
+
+                    // Create the queue type selector
+                    StringSelectMenu queueSelector = StringSelectMenu.create("queue-selector")
+                            .setPlaceholder("Select Queue Type")
+                            .addOption("Solo Queue", "soloQ", "View Solo Queue rankings")
+                            .addOption("Flex Queue", "flexQ", "View Flex Queue rankings")
+                            .build();
+
+                    // Create action row with the selector
+                    ActionRow actionRow = ActionRow.of(queueSelector);
+
+                    // Send message with both embed and selector
+                    event.getHook().sendMessageEmbeds(initialEmbed)
+                            .setComponents(actionRow)
+                            .queue();
+
                 } catch (Exception e) {
                     System.out.println(e.getMessage());
                     event.getHook().sendMessage("Error getting rank information: " + e.getMessage()).queue();
                 }
+                break;
+            case "broadcast":
+                if (!event.getGuild().getId().equals("1310689513894318121")) {
+                    event.reply("This command can only be used from the authorized server.").setEphemeral(true).queue();
+                    return;
+                }
 
+                String userId = event.getUser().getId();
+                String allowedUserId = "164763054842576897";
+
+                if (!userId.equals(allowedUserId)) {
+                    event.reply("You don't have permission to use this command.")
+                            .setEphemeral(true) // Makes the response only visible to the command user
+                            .queue();
+                    return;
+                }
+
+                String message = event.getOption("message").getAsString();
+                String type = event.getOption("type").getAsString().toLowerCase();
+
+                // Create appropriate embed based on type
+                MessageEmbed broadcastEmbed = createBroadcastEmbed(message, type);
+
+                // Defer the reply since broadcasting might take time
+                event.deferReply().queue();
+
+                // Broadcast to all servers
+                broadcastToAllServers(broadcastEmbed);
+
+                // Confirm to the sender
+                event.getHook().sendMessage("Broadcast sent successfully to all servers!").setEphemeral(true).queue();
+                break;
+            case "update":
+                if (!event.getGuild().getId().equals("1310689513894318121")) {
+                    event.reply("This command can only be used from the authorized server.").setEphemeral(true).queue();
+                    break;
+                }
+
+                String updateUserId = event.getUser().getId();
+                String updateAllowedUserId = "164763054842576897";
+
+                if (!updateUserId.equals(updateAllowedUserId)) {
+                    event.reply("You don't have permission to use this command.")
+                            .setEphemeral(true) // Makes the response only visible to the command user
+                            .queue();
+                    break;
+                }
+
+                event.deferReply().queue(); // For longer operations
+                try {
+                    rankService.actualizarInfo();
+                    event.getHook().sendMessage("Actualización de datos realizada con éxito!").setEphemeral(true).queue();
+                } catch (Exception e) {
+                    event.getHook().sendMessage("Error actualizando datos: " + e.getMessage()).setEphemeral(true).queue();
+                }
                 break;
         }
 
@@ -187,52 +285,66 @@ public class ReminderBot extends ListenerAdapter {
         );
     }
 
+    private MessageEmbed createBroadcastEmbed(String message, String type) {
+        EmbedBuilder builder = new EmbedBuilder();
 
-//    @Override
-//    public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
-//        //print the time
-//        // Record the start time
-//        Instant start = Instant.now();
-//        switch (event.getName()) {
-//            case "hello":
-//                event.reply("Hello! I am your friendly bot!").queue();
-//                break;
-//            case "rank":
-//                String name = event.getOption("name").getAsString();
-//                String tagline = event.getOption("tagline").getAsString();
-//
-//                event.deferReply().queue(); // For longer operations
-//
-//
-//                try {
-//                    String rank = rankService.getPlayerRank(name, tagline);
-//                    event.getHook().sendMessage(rank).queue();
-//                } catch (IllegalArgumentException e) {
-//                    event.getHook().sendMessage(e.getMessage()).queue();
-//                } catch (Exception e) {
-//                    event.getHook().sendMessage("Error getting rank information: " + e.getMessage()).queue();
-//                }
-//                break;
-//            case "ranking":
-//                event.deferReply().queue(); // For longer operations
-//                try {
-//                    event.getHook().sendMessageEmbeds(rankService.getRankedPlayerListEmbed()).queue();
-//                } catch (Exception e) {
-//                    event.getHook().sendMessage("Error getting rank information: " + e.getMessage()).queue();
-//                }
-//
-//                break;
-//        }
-//
-//        Instant end = Instant.now();
-//        // Calculate the duration
-//        Duration duration = Duration.between(start, end);
-//        long millis = duration.toMillis();
-//
-//        // Log the duration
-//        System.out.println("Rank command executed in " + millis + " ms");
-//
-//    }
+        switch (type) {
+            case "update":
+                builder.setTitle("🚀 Actualización de versión")
+                        .setColor(Color.BLUE);
+                break;
+            case "maintenance":
+                builder.setTitle("🔧 Mantenimiento")
+                        .setColor(Color.ORANGE);
+                break;
+            default:
+                builder.setTitle("📢 Announcement")
+                        .setColor(Color.GREEN);
+        }
+
+        builder.setDescription(message)
+                .setTimestamp(Instant.now())
+                .setFooter("YamatoCannon", null);
+
+        return builder.build();
+    }
+
+    @Override
+    public void onStringSelectInteraction(StringSelectInteractionEvent event) {
+        // Initialize ContextHolder with guildId
+        String guildId = event.getGuild() != null ? event.getGuild().getId() : null;
+        ContextHolder.setGuildId(guildId);
+        if (event.getComponentId().equals("queue-selector")) {
+            event.deferEdit().queue();
+            String selectedQueue = event.getValues().get(0); // SOLO or FLEX
+
+            try {
+                MessageEmbed updatedEmbed = rankService.getRankedPlayerListEmbed(selectedQueue);
+                event.getHook().editOriginalEmbeds(updatedEmbed).queue();
+            } catch (Exception e) {
+                event.getHook().sendMessage("Error updating rankings: " + e.getMessage()).queue();
+            }
+        }
+    }
+
+    private void broadcastToAllServers(MessageEmbed embed) {
+        for (Guild guild : jda.getGuilds()) {
+            // Try to send to the first available text channel
+            List<TextChannel> channels = guild.getTextChannels();
+            for (TextChannel channel : channels) {
+                if (channel.getName().equals("game_scanner")) {
+                    channel.sendMessageEmbeds(embed)
+                            .queue(
+                                    success -> System.out.println("Broadcast sent to " + guild.getName()),
+                                    error -> System.err.println("Failed to send broadcast to " + guild.getName())
+                            );
+                    break;  // Break after sending to first available channel
+                }
+            }
+        }
+    }
+
+
 
 
     public static void sendMessageToChannel(JDA jda, String guildId, String channelId, String message) {
@@ -255,57 +367,6 @@ public class ReminderBot extends ListenerAdapter {
     }
 
 
-//    @Override
-//    public void onMessageReceived(MessageReceivedEvent event) {
-//        if (event.getAuthor().isBot()) return;
-//
-//        String message = event.getMessage().getContentRaw();
-//        if (message.equalsIgnoreCase("!hello")) {
-//            event.getChannel().sendMessage("Hello! I am your friendly bot!").queue();
-//        } else if (message.equalsIgnoreCase("!hotaru")) {
-//            event.getChannel().sendMessage("El medio está rotando, no puede hacer nada!").queue();
-//        } else if (message.equalsIgnoreCase("!santi")) {
-//            event.getChannel().sendMessage("El jungler más pajero!").queue();
-//        } else if (message.equalsIgnoreCase("!kiko")) {
-//            event.getChannel().sendMessage("El putísimo Deft gallego, un carry natural, poco más que decir.").queue();
-//        }else if (message.toLowerCase().startsWith(PREFIX.toLowerCase())) {
-//
-//            // Remove the command prefix and trim
-//            String withoutPrefix = message.substring(PREFIX.length()).trim();
-//
-//            // Find the last occurrence of # to separate tagline
-//            int taglineIndex = withoutPrefix.lastIndexOf("#");
-//            if (taglineIndex == -1) {
-//                System.out.println("Invalid format. Tagline must start with #");
-//                return;
-//            }
-//
-//            // Everything before the # is the name (trimmed to remove extra spaces)
-//            String name = withoutPrefix.substring(0, taglineIndex).trim();
-//
-//            // Everything after the # is the tagline (including the #)
-//            String tagline = withoutPrefix.substring(taglineIndex + 1).trim();
-//
-//            // Validate we have both parts
-//            if (name.isEmpty() || tagline.equals("#")) {
-//                System.out.println("Formato de comando invalido. Usa: !rank <nombre> <tag>");
-//                event.getChannel().sendMessage("Formato de comando invalido. Usa: !rank <nombre> <tag>").queue();
-//                return;
-//            }
-//
-//            try {
-//               String puuid = riotApiAdapter.getPuuid(name, tagline);
-//               String encryptedSummonerId = riotApiAdapter.getEncryptedSummonerId(puuid);
-//
-//                event.getChannel().sendMessage(riotApiAdapter.getSoloQueueRank(encryptedSummonerId)).queue();
-//               System.out.println(puuid);
-//
-//            } catch (Exception e) {
-//                throw new RuntimeException(e);
-//            }
-//
-//        }
-//    }
 
 //    @Override
 //    public void onUserActivityStart(UserActivityStartEvent event) {

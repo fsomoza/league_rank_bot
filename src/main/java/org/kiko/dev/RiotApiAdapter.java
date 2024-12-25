@@ -280,6 +280,82 @@ public class RiotApiAdapter {
         }
     }
 
+    public String getFlexQueueRank(String encryptedSummonerId) throws Exception {
+        String endpoint = String.format("/lol/league/v4/entries/by-summoner/%s",
+                URLEncoder.encode(encryptedSummonerId, StandardCharsets.UTF_8));
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
+                .header("X-Riot-Token", RIOT_API_KEY)
+                .GET()
+                .build();
+
+        HttpResponse<String> response = client.send(request,
+                HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() == HttpURLConnection.HTTP_OK) {
+            Type listType = new TypeToken<List<LeagueEntry>>() {}.getType();
+            List<LeagueEntry> entries = gson.fromJson(response.body(), listType);
+
+            Optional<LeagueEntry> flexQueue = entries.stream()
+                    .filter(entry -> "RANKED_FLEX_SR".equals(entry.getQueueType()))
+                    .findFirst();
+
+            if (flexQueue.isPresent()) {
+                LeagueEntry entry = flexQueue.get();
+                return String.format("%s %s %d LP",
+                        entry.getTier(),
+                        entry.getRank(),
+                        entry.getLeaguePoints());
+            } else {
+                return "JUEGA RANKEDS";
+            }
+        } else {
+            handleErrorResponse(response);
+            return null;
+        }
+    }
+
+
+    public Map<String, String> getQueueRanks(String encryptedSummonerId) throws Exception {
+        String endpoint = String.format("/lol/league/v4/entries/by-summoner/%s",
+                URLEncoder.encode(encryptedSummonerId, StandardCharsets.UTF_8));
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
+                .header("X-Riot-Token", RIOT_API_KEY)
+                .GET()
+                .build();
+
+        HttpResponse<String> response = client.send(request,
+                HttpResponse.BodyHandlers.ofString());
+
+        Map<String, String> ranks = new HashMap<>();
+        ranks.put("RANKED_SOLO_5x5", "JUEGA RANKEDS");
+        ranks.put("RANKED_FLEX_SR", "JUEGA RANKEDS");
+
+        if (response.statusCode() == HttpURLConnection.HTTP_OK) {
+            Type listType = new TypeToken<List<LeagueEntry>>() {}.getType();
+            List<LeagueEntry> entries = gson.fromJson(response.body(), listType);
+
+            entries.stream()
+                    .filter(entry -> entry.getQueueType().equals("RANKED_SOLO_5x5") ||
+                            entry.getQueueType().equals("RANKED_FLEX_SR"))
+                    .forEach(entry -> ranks.put(
+                            entry.getQueueType(),
+                            String.format("%s %s %d LP",
+                                    entry.getTier(),
+                                    entry.getRank(),
+                                    entry.getLeaguePoints())
+                    ));
+
+            return ranks;
+        } else {
+            handleErrorResponse(response);
+            return null;
+        }
+    }
+
 
     public LeagueEntry getSoloQueusdsdseRank(String encryptedSummonerId) throws Exception {
         String endpoint = String.format("/lol/league/v4/entries/by-summoner/%s",

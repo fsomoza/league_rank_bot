@@ -3,6 +3,7 @@ package org.kiko.dev;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mongodb.MongoException;
+import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
@@ -75,7 +76,7 @@ public class RankService {
      * @return The player's rank.
      * @throws Exception if invalid input or data retrieval fails.
      */
-    public String getPlayerRank(String name, String tagline) throws Exception {
+    public MessageEmbed getPlayerInformation(String name, String tagline) throws Exception {
 
         //TODO upgrade this funcionality to save more data from the player, like rank on flex queue as well, wins/losses, most played champions,
         // winrates, kda, etc.
@@ -86,12 +87,45 @@ public class RankService {
 
         AccountInfo accountInfo = riotApiAdapter.getPuuid(name, tagline);
         String encryptedSummonerId = riotApiAdapter.getEncryptedSummonerId(accountInfo.getPuuid());
-        String rank = riotApiAdapter.getSoloQueueRank(encryptedSummonerId);
 
-        //RiotApiAdapter.LeagueEntry playerInfo = riotApiAdapter.getSoloQueusdsdseRank(encryptedSummonerId);
+        Map<String, String> ranks = riotApiAdapter.getQueueRanks(encryptedSummonerId);
 
-        savePlayerRank(accountInfo.getPuuid(), accountInfo.getGameName(), accountInfo.getTagLine(), rank, encryptedSummonerId);
-        return rank;
+
+        savePlayerInformation(accountInfo.getPuuid(), accountInfo.getGameName(), accountInfo.getTagLine(), ranks, encryptedSummonerId);
+        return buildPlayerRankEmbed(accountInfo, ranks);
+    }
+
+    public void actualizarInfo() throws Exception {
+        MongoDatabase database = mongoDbAdapter.getDatabase();
+
+        for (String collectionName : database.listCollectionNames()) {
+            if (collectionName.contains(SERVER_RANKS_COLLECTION)) {
+                ContextHolder.setGuildId(collectionName.split("-")[1]);
+                MongoCollection<Document> collection = database.getCollection(collectionName);
+
+                // Find all documents in the collection
+                FindIterable<Document> documents = collection.find();
+
+                // Iterate through each document
+                for (Document doc : documents) {
+                    try {
+                        // Extract name and tagline from document
+                        String name = doc.getString("name");
+                        String tagline = doc.getString("tagline");
+
+                        // Update player information
+                        getPlayerInformation(name, tagline);
+
+                        // Optional: Add a small delay to avoid hitting rate limits
+                        Thread.sleep(2000);
+
+                    } catch (Exception e) {
+                        // Log the error but continue processing other documents
+                        System.err.println("Error updating player: " + doc.toJson() + "\nError: " + e.getMessage());
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -194,13 +228,14 @@ public class RankService {
      *
      * @return MessageEmbed for the leaderboard.
      */
-    public MessageEmbed getRankedPlayerListEmbed() {
+    // Updated RankService methods
+    public MessageEmbed getRankedPlayerListEmbed(String queueType) {
         MongoDatabase database = mongoDbAdapter.getDatabase();
         MongoCollection<Document> collection = database.getCollection(SERVER_RANKS_COLLECTION + "-" + ContextHolder.getGuildId());
 
-        List<Document> players = collection.find().sort(Sorts.descending("elo")).into(new ArrayList<>());
+        List<Document> players = collection.find().sort(Sorts.descending(queueType+"Elo")).into(new ArrayList<>());
 
-        return buildRankedPlayerEmbed(players);
+        return buildRankedPlayerEmbed(players, queueType);
     }
 
     // ----------------------------------------------
@@ -210,17 +245,20 @@ public class RankService {
     /**
      * Saves or updates a player's rank information in MongoDB.
      */
-    private void savePlayerRank(String puuid, String name, String tagline, String rank, String encryptedSummonerId) {
+    private void savePlayerInformation(String puuid, String name, String tagline, Map<String,String> playerRanks, String encryptedSummonerId) {
         MongoDatabase database = mongoDbAdapter.getDatabase();
         MongoCollection<Document> collection = database.getCollection(SERVER_RANKS_COLLECTION + "-" +ContextHolder.getGuildId());
 
-        int elo = computeElo(rank);
+        int soloQelo = computeElo(playerRanks.get("RANKED_SOLO_5x5"));
+        int flexQelo = computeElo(playerRanks.get("RANKED_FLEX_SR"));
         Document playerDoc = new Document("puuid", puuid)
                 .append("encryptedSummonerId", encryptedSummonerId)
                 .append("name", name)
                 .append("tagline", tagline)
-                .append("rank", rank)
-                .append("elo", elo)
+                .append("soloQRank", playerRanks.get("RANKED_SOLO_5x5"))
+                .append("soloQElo", soloQelo)
+                .append("flexQRank", playerRanks.get("RANKED_FLEX_SR"))
+                .append("flexQElo", flexQelo)
                 .append("timestamp", System.currentTimeMillis());
 
         collection.replaceOne(
@@ -230,7 +268,14 @@ public class RankService {
         );
     }
 
-    private void updatePlayerRank(String puuid, String rank) {
+    private void updatePlayerRank(String puuid, String queueType, String encryptedSummonerId) throws Exception {
+
+        String rank;
+        if(queueType.equals("RANKED_SOLO/DUO")){
+             rank = riotApiAdapter.getSoloQueueRank(encryptedSummonerId);
+        }else{
+            rank = riotApiAdapter.getFlexQueueRank(encryptedSummonerId);
+        }
 
         // Get the database and collection
         MongoDatabase database = mongoDbAdapter.getDatabase();
@@ -240,7 +285,13 @@ public class RankService {
         Document filter = new Document("puuid", puuid);
 
         // Create the update document with $set to update "rank" and "elo"
-        Document update = new Document("$set", new Document("rank", rank).append("elo", computeElo(rank)));
+        Document update;
+
+        if(queueType.equals("RANKED_SOLO/DUO")){
+             update = new Document("$set", new Document("soloQRank", rank).append("soloQElo", computeElo(rank)));
+        }else{
+             update = new Document("$set", new Document("flexQRank", rank).append("flexQElo", computeElo(rank)));
+        }
 
         // Perform the update with upsert option
         collection.updateOne(
@@ -289,7 +340,7 @@ public class RankService {
 
                     //TODO update the player rank
 
-                    if(gameDoc.getString("queueType").contains("RANKED_SOLO/DUO")){
+
                         List<String> participantPuuidsList = new ArrayList<>(participantPuuids);
 
                         // Create a filter using the $in operator to match any puuid in the list
@@ -297,18 +348,11 @@ public class RankService {
                         // retrieve the players
                         mongoDbAdapter.getDatabase().getCollection(SERVER_RANKS_COLLECTION + "-" + ContextHolder.getGuildId()).find(filter).forEach(player -> {
                             try {
-                                String rank = riotApiAdapter.getSoloQueueRank(player.getString("encryptedSummonerId"));
-                                updatePlayerRank(player.getString("puuid"), rank);
+                                updatePlayerRank(player.getString("puuid"), gameDoc.getString("queueType"), player.getString("encryptedSummonerId"));
                             } catch (Exception e) {
                                 throw new RuntimeException(e);
                             }
                         });
-
-                    }
-
-
-
-
                 }
             }
         } catch (Exception e) {
@@ -526,9 +570,9 @@ public class RankService {
         return sb.toString();
     }
 
-    private MessageEmbed buildRankedPlayerEmbed(List<Document> players) {
+    private MessageEmbed buildRankedPlayerEmbed(List<Document> players, String queueType) {
         EmbedBuilder embed = new EmbedBuilder();
-        embed.setTitle("🏆 Ranked Players Leaderboard");
+        embed.setTitle("🏆 " + (queueType.equals("soloQ") ? "Solo Queue" : "Flex Queue") + " Leaderboard");
         embed.setColor(Color.BLUE);
 
         String goldMedal = "\uD83E\uDD47";
@@ -544,7 +588,12 @@ public class RankService {
         for (Document player : players) {
             String name = player.getString("name");
             String tagline = player.getString("tagline");
-            String rank = player.getString("rank");
+            String rank;
+            if(queueType.equals("soloQ")){
+                rank = player.getString("soloQRank");
+            }else{
+                rank = player.getString("flexQRank");
+            }
             String medal = (position == 1) ? goldMedal + " " :
                     (position == 2) ? silverMedal + " " :
                             (position == 3) ? bronzeMedal + " " : "";
@@ -554,7 +603,37 @@ public class RankService {
         }
         tableBuilder.append("```");
         embed.setDescription(tableBuilder.toString());
-        embed.setFooter("Data fetched from the server ranks collection.");
+        embed.setFooter("Data fetched from " + queueType + " ranks collection • Updated");
+        embed.setTimestamp(java.time.Instant.now());
+
+        return embed.build();
+    }
+
+    private MessageEmbed buildPlayerRankEmbed(AccountInfo accountInfo, Map<String, String> ranks) {
+        EmbedBuilder embed = new EmbedBuilder();
+        embed.setTitle("🎮 Player Rank Information");
+        embed.setColor(Color.BLUE);
+
+        String playerIdentifier = accountInfo.getGameName() + "#" + accountInfo.getTagLine();
+
+        StringBuilder contentBuilder = new StringBuilder();
+        contentBuilder.append("```\n");
+        contentBuilder.append("Player: ").append(playerIdentifier).append("\n");
+        contentBuilder.append("─────────────────────────────\n");
+
+        // Add Solo Queue rank with icon
+        String soloQueueRank = ranks.getOrDefault("RANKED_SOLO_5x5", "Unranked");
+        contentBuilder.append("🏆 Solo Queue: ").append(soloQueueRank).append("\n\n");
+
+        // Add Flex Queue rank with icon
+        String flexQueueRank = ranks.getOrDefault("RANKED_FLEX_SR", "Unranked");
+        contentBuilder.append("👥 Flex Queue: ").append(flexQueueRank).append("\n");
+        contentBuilder.append("```");
+
+        embed.setDescription(contentBuilder.toString());
+
+        // Add footer with timestamp
+        embed.setFooter("Last updated");
         embed.setTimestamp(java.time.Instant.now());
 
         return embed.build();
