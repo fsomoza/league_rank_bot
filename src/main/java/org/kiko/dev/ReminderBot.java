@@ -116,11 +116,23 @@ public class ReminderBot extends ListenerAdapter {
 //
 //        ).queue();
 
-        MyScheduledTask scheduledTask = new MyScheduledTask(reminderBot.rankService, jda);
-        scheduledTask.startScheduledTask();
+//        MyScheduledTask scheduledTask = new MyScheduledTask(reminderBot.rankService, jda);
+//        scheduledTask.startScheduledTask();
+//
+//        // Add shutdown hook to stop the scheduler gracefully
+//        Runtime.getRuntime().addShutdownHook(new Thread(scheduledTask::stopScheduler));
 
-        // Add shutdown hook to stop the scheduler gracefully
-        Runtime.getRuntime().addShutdownHook(new Thread(scheduledTask::stopScheduler));
+
+        SharedTaskQueue taskQueue = new SharedTaskQueue(reminderBot.rankService, jda);
+
+        // Start producing tasks every minute
+        taskQueue.startScheduledTask();
+
+        // ... some time later ...
+        // When shutting down the bot, stop everything
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            taskQueue.stop();
+        }));
 
     }
 

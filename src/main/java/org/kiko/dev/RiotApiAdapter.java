@@ -11,6 +11,7 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
+import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
@@ -21,11 +22,16 @@ public class RiotApiAdapter {
 
     private static final String BASE_URL = "https://europe.api.riotgames.com";
     private static final String ACCOUNT_BASE_URL = "https://euw1.api.riotgames.com";
+
+    private static final String APP_LIMIT = "RIOT_APP";
     private  final String RIOT_API_KEY;
 
 
     private final HttpClient client;
     private final Gson gson;
+
+//    private final RateLimiter rateLimiter;
+    private final SimpleRateLimiter simpleRateLimiter;
 
     // Private constructor to prevent instantiation
     private RiotApiAdapter() {
@@ -34,6 +40,16 @@ public class RiotApiAdapter {
                 .build();
         this.gson = new Gson();
        RIOT_API_KEY = ConfigurationHolder.getProperty("riot.api.key");
+
+        // Initialize rate limiter with Riot API limits
+//        this.rateLimiter = new RateLimiter();
+//
+//        // Add a custom limit for an endpoint
+//        rateLimiter.addLimit("riotDynamic",
+//                new RateLimiter.TokenBucket(20, 1, 20),    // 20 requests per second
+//                new RateLimiter.TokenBucket(100, 120, 100) // 100 requests per 2 minutes
+//        );
+        this.simpleRateLimiter = new SimpleRateLimiter();
     }
 
     // Holder class for lazy-loaded singleton instance
@@ -46,29 +62,40 @@ public class RiotApiAdapter {
         return Holder.INSTANCE;
     }
 
+
+
     public AccountInfo getPuuid(String name, String tagLine) throws Exception {
-
-        String encodedGameName = URLEncoder.encode(name, StandardCharsets.UTF_8);
-        String encodedTagLine = URLEncoder.encode(tagLine, StandardCharsets.UTF_8);
         String endpoint = String.format("/riot/account/v1/accounts/by-riot-id/%s/%s",
-                encodedGameName, encodedTagLine);
+                URLEncoder.encode(name, StandardCharsets.UTF_8),
+                URLEncoder.encode(tagLine, StandardCharsets.UTF_8));
 
-        //TODO VERY REPEATED CODE, MAYBE NEEDS TO BE ABSTRACTED?
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(BASE_URL + endpoint))
-                .header("X-Riot-Token", RIOT_API_KEY)
-                .GET()
-                .build();
+        while (true) {
+            if (!simpleRateLimiter.canProceed(APP_LIMIT)) {
+                simpleRateLimiter.awaitRateLimit(APP_LIMIT);
+                continue;
+            }
 
-        HttpResponse<String> response = client.send(request,
-                HttpResponse.BodyHandlers.ofString());
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(BASE_URL + endpoint))
+                    .header("X-Riot-Token", RIOT_API_KEY)
+                    .GET()
+                    .build();
 
-        if (response.statusCode() == HttpURLConnection.HTTP_OK) {
-            return gson.fromJson(response.body(), AccountInfo.class);
-        } else {
-            System.out.println("peta aqui");
-            handleErrorResponse(response);
-            return null; // Or throw an exception based on your error handling strategy
+            HttpResponse<String> response = client.send(request,
+                    HttpResponse.BodyHandlers.ofString());
+
+            // Update rate limit based on response
+            simpleRateLimiter.updateRateLimit(APP_LIMIT, response);
+
+            if (response.statusCode() == HttpURLConnection.HTTP_OK) {
+                return gson.fromJson(response.body(), AccountInfo.class);
+            } else if (response.statusCode() == 429) { // Rate limit hit
+                continue; // Will retry after waiting
+            } else {
+                System.out.println("peta aqui");
+                handleErrorResponse(response);
+                return null;
+            }
         }
     }
 
@@ -76,20 +103,33 @@ public class RiotApiAdapter {
 
         CurrentGameInfo currentGameInfo = new CurrentGameInfo();
 
-
         String endpoint = String.format("/lol/spectator/v5/active-games/by-summoner/%s",
                 URLEncoder.encode(puuid, StandardCharsets.UTF_8));
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
-                .header("X-Riot-Token", RIOT_API_KEY)
-                .GET()
-                .build();
-        HttpResponse<String> response = client.send(request,
-                HttpResponse.BodyHandlers.ofString());
 
-        if (response.statusCode() == HttpURLConnection.HTTP_OK) {
-            JsonObject jsonObject = gson.fromJson(response.body(), JsonObject.class);
-            // Ensure you retrieve the string value for comparison
+        while (true) {
+            if (!simpleRateLimiter.canProceed(APP_LIMIT)) {
+                simpleRateLimiter.awaitRateLimit(APP_LIMIT);
+                continue;
+            }
+
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
+                    .header("X-Riot-Token", RIOT_API_KEY)
+                    .GET()
+                    .build();
+
+
+            HttpResponse<String> response = client.send(request,
+                    HttpResponse.BodyHandlers.ofString());
+
+            // Update rate limit based on response
+            simpleRateLimiter.updateRateLimit(APP_LIMIT, response);
+
+            if (response.statusCode() == HttpURLConnection.HTTP_OK) {
+
+                JsonObject jsonObject = gson.fromJson(response.body(), JsonObject.class);
+                // Ensure you retrieve the string value for comparison
 
                 currentGameInfo.setGameId(jsonObject.get("gameId").getAsString());
                 currentGameInfo.setQueueType(jsonObject.get("gameQueueConfigId").getAsString());
@@ -115,244 +155,331 @@ public class RiotApiAdapter {
 
                     }
                 }
-                    return currentGameInfo;
-        } else {
-            //handleErrorResponse(response);
-            return null;
+                return currentGameInfo;
+            } else if (response.statusCode() == 429) {
+                    HttpHeaders headers = response.headers();
+                    System.out.println("Rate limit exceeded");
+                    System.out.println("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+                    System.out.println("Retry after " + headers.map().get("retry-after"));
+            }else{
+                //handleErrorResponse(response);
+                return null;
+            }
+
+
         }
     }
 
     public CompletedGameInfo checkCompletedGame(String gameId, Set<String> participantPuuids) throws Exception {
 
+
         //TODO: need to cover casuistic where players are in opposite teams
 
-        CompletedGameInfo completedGameInfo = new CompletedGameInfo();
-        List<CompletedGameInfoParticipant> completedGameInfoParticipants = new ArrayList<>();
-        completedGameInfo.setParticipants(completedGameInfoParticipants);
-
-        Boolean win = null;
-
-        // Encode the gameId to ensure it's safe for use in a URL
-        String encodedGameId = URLEncoder.encode(gameId, StandardCharsets.UTF_8);
-
-        // Complete the endpoint by adding '/ids' and the query parameters
-        String endpoint = String.format("/lol/match/v5/matches/%s", encodedGameId);
-
-
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(BASE_URL + endpoint))
-                .header("X-Riot-Token", RIOT_API_KEY)
-                .GET()
-                .build();
-
-        HttpResponse<String> response = client.send(request,
-                HttpResponse.BodyHandlers.ofString());
-
-        if (response.statusCode() == HttpURLConnection.HTTP_OK) {
-            JsonObject jsonObject = gson.fromJson(response.body(), JsonObject.class);
-            JsonObject info =  jsonObject.get("info").getAsJsonObject();
-            JsonArray participants = info.get("participants").getAsJsonArray();
-            for (JsonElement participantElement : participants) {
-                JsonObject participant = participantElement.getAsJsonObject();
-                String participantPuuid = participant.get("puuid").getAsString();
-                if (participantPuuids.contains(participantPuuid)) {
-
-                   if (win == null){
-                       win = participant.get("win").getAsBoolean();
-                   }
-
-                    JsonObject player = participant.getAsJsonObject();
-                    CompletedGameInfoParticipant completedGameInfoParticipant = new CompletedGameInfoParticipant();
-                    completedGameInfoParticipant.setPlayerName(player.get("riotIdGameName").getAsString());
-                    completedGameInfoParticipant.setChampion(player.get("championName").getAsString());
-                    //completedGameInfo.setWin(player.get("win").getAsBoolean());
-                    String kills = player.get("kills").getAsString();
-                    String deaths = player.get("deaths").getAsString();
-                    String assists = player.get("assists").getAsString();
-                    completedGameInfoParticipant.setKda(kills + "/" + deaths + "/" + assists);
-                    completedGameInfoParticipants.add(completedGameInfoParticipant);
-                }
+        while (true) {
+            if (!simpleRateLimiter.canProceed(APP_LIMIT)) {
+                simpleRateLimiter.awaitRateLimit(APP_LIMIT);
+                continue;
             }
-            completedGameInfo.setWin(win);
-            return completedGameInfo;
-        }else{
-            //handleErrorResponse(response);
-            System.out.println(response.body());
-            return null;
-        }
 
+            CompletedGameInfo completedGameInfo = new CompletedGameInfo();
+            List<CompletedGameInfoParticipant> completedGameInfoParticipants = new ArrayList<>();
+            completedGameInfo.setParticipants(completedGameInfoParticipants);
+
+            Boolean win = null;
+
+            // Encode the gameId to ensure it's safe for use in a URL
+            String encodedGameId = URLEncoder.encode(gameId, StandardCharsets.UTF_8);
+
+            // Complete the endpoint by adding '/ids' and the query parameters
+            String endpoint = String.format("/lol/match/v5/matches/%s", encodedGameId);
+
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(BASE_URL + endpoint))
+                    .header("X-Riot-Token", RIOT_API_KEY)
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = client.send(request,
+                    HttpResponse.BodyHandlers.ofString());
+
+            simpleRateLimiter.updateRateLimit(APP_LIMIT, response);
+
+            if (response.statusCode() == HttpURLConnection.HTTP_OK) {
+                JsonObject jsonObject = gson.fromJson(response.body(), JsonObject.class);
+                JsonObject info = jsonObject.get("info").getAsJsonObject();
+                JsonArray participants = info.get("participants").getAsJsonArray();
+                for (JsonElement participantElement : participants) {
+                    JsonObject participant = participantElement.getAsJsonObject();
+                    String participantPuuid = participant.get("puuid").getAsString();
+                    if (participantPuuids.contains(participantPuuid)) {
+
+                        if (win == null) {
+                            win = participant.get("win").getAsBoolean();
+                        }
+
+                        JsonObject player = participant.getAsJsonObject();
+                        CompletedGameInfoParticipant completedGameInfoParticipant = new CompletedGameInfoParticipant();
+                        completedGameInfoParticipant.setPlayerName(player.get("riotIdGameName").getAsString());
+                        completedGameInfoParticipant.setChampion(player.get("championName").getAsString());
+                        //completedGameInfo.setWin(player.get("win").getAsBoolean());
+                        String kills = player.get("kills").getAsString();
+                        String deaths = player.get("deaths").getAsString();
+                        String assists = player.get("assists").getAsString();
+                        completedGameInfoParticipant.setKda(kills + "/" + deaths + "/" + assists);
+                        completedGameInfoParticipants.add(completedGameInfoParticipant);
+                    }
+                }
+                completedGameInfo.setWin(win);
+                return completedGameInfo;
+            } else if (response.statusCode() == 429) {
+                HttpHeaders headers = response.headers();
+                System.out.println("Retry after " + headers.map().get("retry-after"));
+            } else {
+                //handleErrorResponse(response);
+                System.out.println(response.body());
+                return null;
+            }
+        }
     }
 
     public String searchGameId(String puuid, String gameId) throws Exception {
 
-
-        // Encode the PUUID to ensure it's safe for use in a URL
-        String encodedPuuid = URLEncoder.encode(puuid, StandardCharsets.UTF_8);
-
-        // Complete the endpoint by adding '/ids' and the query parameters
-        String endpoint = String.format("/lol/match/v5/matches/by-puuid/%s/ids?start=0&count=30", encodedPuuid);
-
-        // Build the full URI
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(BASE_URL + endpoint))
-                .header("X-Riot-Token", RIOT_API_KEY)
-                .GET()
-                .build();
-
-        HttpResponse<String> response = client.send(request,
-                HttpResponse.BodyHandlers.ofString());
-
-        if (response.statusCode() == HttpURLConnection.HTTP_OK) {
-            // Parse the response body as a JSON array
-            JsonArray matches = gson.fromJson(response.body(), JsonArray.class);
-
-            // Iterate through each match ID in the array
-            for (JsonElement matchElement : matches) {
-                String matchId = matchElement.getAsString();
-                if (matchId.equalsIgnoreCase("EUW1_"+gameId)) {
-                    return matchId;
-                }
+        while (true) {
+            if (!simpleRateLimiter.canProceed(APP_LIMIT)) {
+                simpleRateLimiter.awaitRateLimit(APP_LIMIT);
+                continue;
             }
-        } else {
-            // Handle non-200 responses appropriately
-            System.err.println("Failed to fetch matches. HTTP Status Code: " + response.statusCode());
-            // Optionally, you can throw an exception or handle it as per your application's requirement
-        }
 
-        return null;
+            // Encode the PUUID to ensure it's safe for use in a URL
+            String encodedPuuid = URLEncoder.encode(puuid, StandardCharsets.UTF_8);
+
+            // Complete the endpoint by adding '/ids' and the query parameters
+            String endpoint = String.format("/lol/match/v5/matches/by-puuid/%s/ids?start=0&count=30", encodedPuuid);
+
+            // Build the full URI
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(BASE_URL + endpoint))
+                    .header("X-Riot-Token", RIOT_API_KEY)
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = client.send(request,
+                    HttpResponse.BodyHandlers.ofString());
+
+            simpleRateLimiter.updateRateLimit(APP_LIMIT, response);
+
+            if (response.statusCode() == HttpURLConnection.HTTP_OK) {
+                // Parse the response body as a JSON array
+                JsonArray matches = gson.fromJson(response.body(), JsonArray.class);
+
+                // Iterate through each match ID in the array
+                for (JsonElement matchElement : matches) {
+                    String matchId = matchElement.getAsString();
+                    if (matchId.equalsIgnoreCase("EUW1_" + gameId)) {
+                        return matchId;
+                    }else{
+                        //TODO: maybe delete the game from the db
+                        return null;
+                    }
+                }
+            } else if (response.statusCode() == 429) { // Rate limit hit
+                continue; // Will retry after waiting
+
+            }else {
+                // Handle non-200 responses appropriately
+                System.err.println("Failed to fetch matches. HTTP Status Code: " + response.statusCode());
+                // Optionally, you can throw an exception or handle it as per your application's requirement
+                return null;
+            }
+
+
+        }
     }
 
     public String getEncryptedSummonerId(String puuid) throws Exception {
-        String endpoint = String.format("/lol/summoner/v4/summoners/by-puuid/%s",
-                URLEncoder.encode(puuid, StandardCharsets.UTF_8));
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
-                .header("X-Riot-Token", RIOT_API_KEY)
-                .GET()
-                .build();
+        while (true) {
+            if (!simpleRateLimiter.canProceed(APP_LIMIT)) {
+                simpleRateLimiter.awaitRateLimit(APP_LIMIT);
+                continue;
+            }
 
-        HttpResponse<String> response = client.send(request,
-                HttpResponse.BodyHandlers.ofString());
+            String endpoint = String.format("/lol/summoner/v4/summoners/by-puuid/%s",
+                    URLEncoder.encode(puuid, StandardCharsets.UTF_8));
 
-        if (response.statusCode() == HttpURLConnection.HTTP_OK) {
-            JsonObject jsonObject = gson.fromJson(response.body(), JsonObject.class);
-            return jsonObject.get("id").getAsString();
-        } else {
-            handleErrorResponse(response);
-            return null;
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
+                    .header("X-Riot-Token", RIOT_API_KEY)
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = client.send(request,
+                    HttpResponse.BodyHandlers.ofString());
+
+            simpleRateLimiter.updateRateLimit(APP_LIMIT, response);
+
+            if (response.statusCode() == HttpURLConnection.HTTP_OK) {
+                JsonObject jsonObject = gson.fromJson(response.body(), JsonObject.class);
+                return jsonObject.get("id").getAsString();
+            } else if (response.statusCode() == 429) { // Rate limit hit
+                continue; // Will retry after waiting
+
+            }else {
+                handleErrorResponse(response);
+                return null;
+            }
         }
     }
 
     public String getSoloQueueRank(String encryptedSummonerId) throws Exception {
-        String endpoint = String.format("/lol/league/v4/entries/by-summoner/%s",
-                URLEncoder.encode(encryptedSummonerId, StandardCharsets.UTF_8));
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
-                .header("X-Riot-Token", RIOT_API_KEY)
-                .GET()
-                .build();
-
-        HttpResponse<String> response = client.send(request,
-                HttpResponse.BodyHandlers.ofString());
-
-        if (response.statusCode() == HttpURLConnection.HTTP_OK) {
-            Type listType = new TypeToken<List<LeagueEntry>>() {}.getType();
-            List<LeagueEntry> entries = gson.fromJson(response.body(), listType);
-
-            Optional<LeagueEntry> soloQueue = entries.stream()
-                    .filter(entry -> "RANKED_SOLO_5x5".equals(entry.getQueueType()))
-                    .findFirst();
-
-            if (soloQueue.isPresent()) {
-                LeagueEntry entry = soloQueue.get();
-                return String.format("%s %s %d LP",
-                        entry.getTier(),
-                        entry.getRank(),
-                        entry.getLeaguePoints());
-            } else {
-                return "JUEGA RANKEDS";
+        while (true) {
+            if (!simpleRateLimiter.canProceed(APP_LIMIT)) {
+                simpleRateLimiter.awaitRateLimit(APP_LIMIT);
+                continue;
             }
-        } else {
-            handleErrorResponse(response);
-            return null;
+
+            String endpoint = String.format("/lol/league/v4/entries/by-summoner/%s",
+                    URLEncoder.encode(encryptedSummonerId, StandardCharsets.UTF_8));
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
+                    .header("X-Riot-Token", RIOT_API_KEY)
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = client.send(request,
+                    HttpResponse.BodyHandlers.ofString());
+
+            simpleRateLimiter.updateRateLimit(APP_LIMIT, response);
+
+            if (response.statusCode() == HttpURLConnection.HTTP_OK) {
+                Type listType = new TypeToken<List<LeagueEntry>>() {
+                }.getType();
+                List<LeagueEntry> entries = gson.fromJson(response.body(), listType);
+
+                Optional<LeagueEntry> soloQueue = entries.stream()
+                        .filter(entry -> "RANKED_SOLO_5x5".equals(entry.getQueueType()))
+                        .findFirst();
+
+                if (soloQueue.isPresent()) {
+                    LeagueEntry entry = soloQueue.get();
+                    return String.format("%s %s %d LP",
+                            entry.getTier(),
+                            entry.getRank(),
+                            entry.getLeaguePoints());
+                } else {
+                    return "JUEGA RANKEDS";
+                }
+            } else if (response.statusCode() == 429) { // Rate limit hit
+                continue; // Will retry after waiting
+            }else {
+                handleErrorResponse(response);
+                return null;
+            }
         }
     }
 
     public String getFlexQueueRank(String encryptedSummonerId) throws Exception {
-        String endpoint = String.format("/lol/league/v4/entries/by-summoner/%s",
-                URLEncoder.encode(encryptedSummonerId, StandardCharsets.UTF_8));
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
-                .header("X-Riot-Token", RIOT_API_KEY)
-                .GET()
-                .build();
-
-        HttpResponse<String> response = client.send(request,
-                HttpResponse.BodyHandlers.ofString());
-
-        if (response.statusCode() == HttpURLConnection.HTTP_OK) {
-            Type listType = new TypeToken<List<LeagueEntry>>() {}.getType();
-            List<LeagueEntry> entries = gson.fromJson(response.body(), listType);
-
-            Optional<LeagueEntry> flexQueue = entries.stream()
-                    .filter(entry -> "RANKED_FLEX_SR".equals(entry.getQueueType()))
-                    .findFirst();
-
-            if (flexQueue.isPresent()) {
-                LeagueEntry entry = flexQueue.get();
-                return String.format("%s %s %d LP",
-                        entry.getTier(),
-                        entry.getRank(),
-                        entry.getLeaguePoints());
-            } else {
-                return "JUEGA RANKEDS";
+        while (true) {
+            if (!simpleRateLimiter.canProceed(APP_LIMIT)) {
+                simpleRateLimiter.awaitRateLimit(APP_LIMIT);
+                continue;
             }
-        } else {
-            handleErrorResponse(response);
-            return null;
+
+            String endpoint = String.format("/lol/league/v4/entries/by-summoner/%s",
+                    URLEncoder.encode(encryptedSummonerId, StandardCharsets.UTF_8));
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
+                    .header("X-Riot-Token", RIOT_API_KEY)
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = client.send(request,
+                    HttpResponse.BodyHandlers.ofString());
+
+            simpleRateLimiter.updateRateLimit(APP_LIMIT, response);
+
+            if (response.statusCode() == HttpURLConnection.HTTP_OK) {
+                Type listType = new TypeToken<List<LeagueEntry>>() {
+                }.getType();
+                List<LeagueEntry> entries = gson.fromJson(response.body(), listType);
+
+                Optional<LeagueEntry> flexQueue = entries.stream()
+                        .filter(entry -> "RANKED_FLEX_SR".equals(entry.getQueueType()))
+                        .findFirst();
+
+                if (flexQueue.isPresent()) {
+                    LeagueEntry entry = flexQueue.get();
+                    return String.format("%s %s %d LP",
+                            entry.getTier(),
+                            entry.getRank(),
+                            entry.getLeaguePoints());
+                } else {
+                    return "JUEGA RANKEDS";
+                }
+            }else if (response.statusCode() == 429) { // Rate limit hit
+                continue; // Will retry after waiting
+            } else {
+                handleErrorResponse(response);
+                return null;
+            }
         }
     }
 
 
     public Map<String, String> getQueueRanks(String encryptedSummonerId) throws Exception {
-        String endpoint = String.format("/lol/league/v4/entries/by-summoner/%s",
-                URLEncoder.encode(encryptedSummonerId, StandardCharsets.UTF_8));
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
-                .header("X-Riot-Token", RIOT_API_KEY)
-                .GET()
-                .build();
+        while (true) {
+            if (!simpleRateLimiter.canProceed(APP_LIMIT)) {
+                simpleRateLimiter.awaitRateLimit(APP_LIMIT);
+                continue;
+            }
 
-        HttpResponse<String> response = client.send(request,
-                HttpResponse.BodyHandlers.ofString());
+            String endpoint = String.format("/lol/league/v4/entries/by-summoner/%s",
+                    URLEncoder.encode(encryptedSummonerId, StandardCharsets.UTF_8));
 
-        Map<String, String> ranks = new HashMap<>();
-        ranks.put("RANKED_SOLO_5x5", "JUEGA RANKEDS");
-        ranks.put("RANKED_FLEX_SR", "JUEGA RANKEDS");
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
+                    .header("X-Riot-Token", RIOT_API_KEY)
+                    .GET()
+                    .build();
 
-        if (response.statusCode() == HttpURLConnection.HTTP_OK) {
-            Type listType = new TypeToken<List<LeagueEntry>>() {}.getType();
-            List<LeagueEntry> entries = gson.fromJson(response.body(), listType);
+            HttpResponse<String> response = client.send(request,
+                    HttpResponse.BodyHandlers.ofString());
 
-            entries.stream()
-                    .filter(entry -> entry.getQueueType().equals("RANKED_SOLO_5x5") ||
-                            entry.getQueueType().equals("RANKED_FLEX_SR"))
-                    .forEach(entry -> ranks.put(
-                            entry.getQueueType(),
-                            String.format("%s %s %d LP",
-                                    entry.getTier(),
-                                    entry.getRank(),
-                                    entry.getLeaguePoints())
-                    ));
+            simpleRateLimiter.updateRateLimit(APP_LIMIT, response);
 
-            return ranks;
-        } else {
-            handleErrorResponse(response);
-            return null;
+            Map<String, String> ranks = new HashMap<>();
+            ranks.put("RANKED_SOLO_5x5", "JUEGA RANKEDS");
+            ranks.put("RANKED_FLEX_SR", "JUEGA RANKEDS");
+
+            if (response.statusCode() == HttpURLConnection.HTTP_OK) {
+                Type listType = new TypeToken<List<LeagueEntry>>() {
+                }.getType();
+                List<LeagueEntry> entries = gson.fromJson(response.body(), listType);
+
+                entries.stream()
+                        .filter(entry -> entry.getQueueType().equals("RANKED_SOLO_5x5") ||
+                                entry.getQueueType().equals("RANKED_FLEX_SR"))
+                        .forEach(entry -> ranks.put(
+                                entry.getQueueType(),
+                                String.format("%s %s %d LP",
+                                        entry.getTier(),
+                                        entry.getRank(),
+                                        entry.getLeaguePoints())
+                        ));
+
+                return ranks;
+            }else if (response.statusCode() == 429) { // Rate limit hit
+                continue; // Will retry after waiting
+            } else {
+                handleErrorResponse(response);
+                return null;
+            }
         }
     }
 
