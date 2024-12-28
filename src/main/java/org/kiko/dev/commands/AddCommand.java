@@ -1,0 +1,52 @@
+package org.kiko.dev.commands;
+
+import net.dv8tion.jda.api.EmbedBuilder;
+import net.dv8tion.jda.api.entities.MessageEmbed;
+import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
+import org.kiko.dev.RankService;
+
+import java.awt.*;
+import java.time.Instant;
+
+public class AddCommand implements Command {
+
+    private final RankService rankService;
+
+    public AddCommand(RankService rankService) {
+        this.rankService = rankService;
+    }
+
+    @Override
+    public String getName() {
+        return "add";
+    }
+
+    @Override
+    public void execute(SlashCommandInteractionEvent event) {
+        String name = event.getOption("name").getAsString();
+        String tagline = event.getOption("tagline").getAsString();
+
+        event.deferReply().queue(); // For longer operations
+
+        try {
+            MessageEmbed rank = rankService.getPlayerInformation(name, tagline);
+            event.getHook().sendMessageEmbeds(createAddEmbed(name, tagline)).queue();
+        } catch (IllegalArgumentException e) {
+            System.out.println(e.getMessage());
+            event.getHook().sendMessage(e.getMessage()).queue();
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+            event.getHook().sendMessage("Error saving player's information: " + e.getMessage()).queue();
+        }
+    }
+
+    private MessageEmbed createAddEmbed(String name, String tagline) {
+        EmbedBuilder builder = new EmbedBuilder();
+        builder.setTitle("👍 Player Added")
+                .setColor(Color.GREEN)
+                .addField("Name", name, true)
+                .addField("Tagline", tagline, true)
+                .setTimestamp(Instant.now());
+        return builder.build();
+    }
+}
