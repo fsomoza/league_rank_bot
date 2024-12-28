@@ -15,7 +15,7 @@ public class SharedTaskQueue {
     // Bounded queue to store tasks
     // - LinkedBlockingQueue will block if full
     // - Adjust capacity to suit how many tasks you can buffer
-    private final BlockingQueue<Runnable> taskQueue = new LinkedBlockingQueue<>(1);
+    private final BlockingQueue<Runnable> taskQueue = new LinkedBlockingQueue<>(5);
 
     // Fixed-size pool of workers that will process tasks from the queue
     // - If you want 5 concurrent tasks at most, set pool size to 5
@@ -105,7 +105,7 @@ public class SharedTaskQueue {
     private void startWorkerThreads() {
         // We want each thread to run an infinite loop,
         // polling tasks from the queue and executing them
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 1; i++) {
             workerPool.submit(() -> {
                 while (!Thread.currentThread().isInterrupted()) {
                     try {

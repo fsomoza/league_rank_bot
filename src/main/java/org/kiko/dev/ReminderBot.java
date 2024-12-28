@@ -19,6 +19,7 @@ import net.dv8tion.jda.api.interactions.components.selections.StringSelectMenu;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.MemberCachePolicy;
 import net.dv8tion.jda.api.utils.cache.CacheFlag;
+import org.kiko.dev.commands.CommandManager;
 
 import javax.security.auth.login.LoginException;
 import java.awt.*;
@@ -29,15 +30,17 @@ import java.util.List;
 public class ReminderBot extends ListenerAdapter {
 
     public final RankService rankService;
+    private final CommandManager commandManager;
 
     private static final String PREFIX = "!rank";
 
 
     private JDA jda;  // Instance variable to hold the JDA object
 
-    public ReminderBot(JDA jda) {
+    public ReminderBot(JDA jda, CommandManager commandManager) {
         this.jda = jda;
         this.rankService = new RankService(jda);
+        this.commandManager = commandManager;
     }
 
 
@@ -54,8 +57,12 @@ public class ReminderBot extends ListenerAdapter {
         // Wait until the bot is ready
         jda.awaitReady();
 
-        // Create an instance of ReminderBot with the JDA object
-        ReminderBot reminderBot = new ReminderBot(jda);
+        // Initialize CommandManager
+        CommandManager commandManager = new CommandManager();
+
+        // Create an instance of ReminderBot with the JDA object and CommandManager
+        ReminderBot reminderBot = new ReminderBot(jda, commandManager);
+
 
         // Add the event listener
         jda.addEventListener(reminderBot);
@@ -70,6 +77,23 @@ public class ReminderBot extends ListenerAdapter {
             ).queue();
 
             guild.upsertCommand(Commands.slash("ranking", "Ranking list of server members")
+                    .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
+            ).queue();
+
+
+            guild.upsertCommand(Commands.slash("add", "Add a player to the bot's database")
+                    .addOption(OptionType.STRING, "name", "Player's name", true)
+                    .addOption(OptionType.STRING, "tagline", "Player's tagline without #", true)
+                    .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
+            ).queue();
+
+            guild.upsertCommand(Commands.slash("help", "Get help with the bot")
+                    .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
+            ).queue();
+
+            guild.upsertCommand(Commands.slash("delete", "Delete a player from the bot's database")
+                    .addOption(OptionType.STRING, "name", "Player's name", true)
+                    .addOption(OptionType.STRING, "tagline", "Player's tagline without #", true)
                     .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
             ).queue();
 
@@ -179,6 +203,51 @@ public class ReminderBot extends ListenerAdapter {
                     event.getHook().sendMessage("Error getting rank information: " + e.getMessage()).queue();
                 }
                 break;
+
+            case "add":
+                 name = event.getOption("name").getAsString();
+                 tagline = event.getOption("tagline").getAsString();
+
+                event.deferReply().queue(); // For longer operations
+
+                try {
+                    MessageEmbed rank = rankService.getPlayerInformation(name, tagline);
+                    event.getHook().sendMessageEmbeds(createAddEmbed(name,tagline)).queue();
+//                    event.getHook().sendMessage(rank).queue();
+                } catch (IllegalArgumentException e) {
+                    System.out.println(e.getMessage());
+                    event.getHook().sendMessage(e.getMessage()).queue();
+                } catch (Exception e) {
+                    System.out.println(e.getMessage());
+                    event.getHook().sendMessage("Error saving player's information: " + e.getMessage()).queue();
+                }
+                break;
+
+
+            case "help":
+                event.deferReply().queue(); // For longer operations
+                event.getHook().sendMessageEmbeds(createHelpEmbed()).queue();
+                break;
+
+            case "delete":
+                 name = event.getOption("name").getAsString();
+                 tagline = event.getOption("tagline").getAsString();
+
+                event.deferReply().queue(); // For longer operations
+
+                try {
+                    rankService.deletePlayer(name, tagline);
+                    event.getHook().sendMessageEmbeds(createDeleteEmbed(name, tagline)).queue();
+//                    event.getHook().sendMessage(rank).queue();
+                } catch (IllegalArgumentException e) {
+                    System.out.println(e.getMessage());
+                    event.getHook().sendMessage(e.getMessage()).queue();
+                } catch (Exception e) {
+                    System.out.println(e.getMessage());
+                    event.getHook().sendMessage("Error borrando jugador: " + e.getMessage()).queue();
+                }
+                break;
+
             case "ranking":
                 event.deferReply().queue(); // For longer operations
                 try {
@@ -295,6 +364,42 @@ public class ReminderBot extends ListenerAdapter {
                 success -> System.out.println("Registered /ranking command for guild: " + guild.getName()),
                 error -> System.err.println("Failed to register /ranking command for guild: " + guild.getName())
         );
+
+        guild.upsertCommand(Commands.slash("add", "Add a player to the bot's database")
+                .addOption(OptionType.STRING, "name", "Player's name", true)
+                .addOption(OptionType.STRING, "tagline", "Player's tagline without #", true)
+                .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
+        ).queue(
+                success -> System.out.println("Registered /add command for guild: " + guild.getName()),
+                error -> System.err.println("Failed to register /add command for guild: " + guild.getName())
+        );
+
+        guild.upsertCommand(Commands.slash("help", "Get help with the bot")
+                .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
+        ).queue(
+                success -> System.out.println("Registered /help command for guild: " + guild.getName()),
+                error -> System.err.println("Failed to register /help command for guild: " + guild.getName())
+        );
+
+        guild.upsertCommand(Commands.slash("delete", "Delete a player from the bot's database")
+                .addOption(OptionType.STRING, "name", "Player's name", true)
+                .addOption(OptionType.STRING, "tagline", "Player's tagline without #", true)
+                .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
+        ).queue(
+                success -> System.out.println("Registered /delete command for guild: " + guild.getName()),
+                error -> System.err.println("Failed to register /delete command for guild: " + guild.getName())
+        );
+
+
+    }
+
+    private MessageEmbed createDeleteEmbed(String name, String tagline) {
+        EmbedBuilder builder = new EmbedBuilder();
+        builder.setTitle("🗑️ Eliminación de jugador")
+                .setColor(Color.RED)
+                .addField("Nombre", name, true)
+                .addField("Tagline", tagline, true);
+        return builder.build();
     }
 
     private MessageEmbed createBroadcastEmbed(String message, String type) {
@@ -320,6 +425,40 @@ public class ReminderBot extends ListenerAdapter {
 
         return builder.build();
     }
+
+    private MessageEmbed createAddEmbed(String name, String tagline) {
+        EmbedBuilder builder = new EmbedBuilder();
+        builder.setTitle("👍 Player added")
+                .setColor(Color.GREEN)
+                .addField("Name", name, true)
+                .addField("Tagline", tagline, true);
+        return builder.build();
+    }
+
+    private MessageEmbed createHelpEmbed() {
+        EmbedBuilder builder = new EmbedBuilder();
+        builder.setTitle("Bot Help & Commands")
+                .setColor(Color.CYAN)
+                .setDescription("Hello! I am a bot designed to provide live-tracking of your League of Legends games amongst other things. Here are the commands and features you can use:")
+                .addField("GAME SCANNER",
+                        "This is the main feature of the bot. Does a live-tracking of the games of the players you have registered." +
+                                "You need to create a channel called `game_scanner` in your server to use this feature.", false)
+                .addField("/add <name> <tagline>",
+                        "Registers a player in the bot's database using their **name** and **tagline** (without #). This is required to use the other commands.",
+                        false)
+                .addField("/rank <name> <tagline>",
+                        "Retrieves a player's ranked information based on their in-game **name** and **tagline** (without #) and adds it to the bot's database.",
+                        false)
+                .addField("/ranking",
+                        "Displays a ranking list of all registered server members. You can switch between Solo Queue and Flex Queue via a dropdown menu.",
+                        false)
+                .addField("/delete <name> <tagline>",
+                        "Removes a specific player from the server's stored list using their **name** and **tagline**.",
+                        false)
+                .setFooter("Use these commands wisely! Have fun!");
+        return builder.build();
+    }
+
 
     @Override
     public void onStringSelectInteraction(StringSelectInteractionEvent event) {

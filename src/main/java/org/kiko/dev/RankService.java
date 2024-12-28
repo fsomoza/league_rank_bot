@@ -24,6 +24,7 @@ import java.awt.*;
 import java.io.IOException;
 import java.util.*;
 import java.util.List;
+import java.util.regex.Pattern;
 
 public class RankService {
 
@@ -138,6 +139,10 @@ public class RankService {
         //TextChannel channel = guild.getTextChannelById(CHANNEL_ID);
         TextChannel textChannel = guild.getTextChannelsByName("game_scanner", true).get(0);
 
+        if(ContextHolder.getGuildId().equals("1145760061042458674")){
+            System.out.println("GuildId: " + ContextHolder.getGuildId());
+        }
+
         MongoDatabase database = mongoDbAdapter.getDatabase();
         MongoCollection<Document> serverRanksCollection = database.getCollection(SERVER_RANKS_COLLECTION + "-" + ContextHolder.getGuildId());
         MongoCollection<Document> gamesInProgressCollection = database.getCollection(GAMES_IN_PROGRESS_COLLECTION + "-" + ContextHolder.getGuildId());
@@ -160,7 +165,8 @@ public class RankService {
             // Only check players not known to be in-game
             if (playersMap.containsKey(puuid)) {
                 CurrentGameInfo currentGameInfo = riotApiAdapter.checkIfPlayerIsInGame(puuid, playersMap);
-                if (currentGameInfo != null) {
+                //TODO: QUICK HACK TO SKIP THE CUSTOM GAMES THAT DONT APPEAR IN THE MATCH HISTORY
+                if (currentGameInfo != null && getQueueType(currentGameInfo.getQueueType()) != "UNKNOWN") {
                     handlePlayerInGame(currentGameInfo, textChannel, gamesInProgressCollection);
                 }
             }
@@ -465,11 +471,72 @@ public class RankService {
                     failure.printStackTrace();
                 });
 
-
-
-
     }
 
+//    public void deletePlayer(String name, String tagline) throws Exception {
+//        AccountInfo accountInfo = riotApiAdapter.getPuuid(name, tagline);
+//        String puuid = accountInfo.getPuuid();
+//        MongoDatabase database = mongoDbAdapter.getDatabase();
+//        MongoCollection<Document> collection = database.getCollection(SERVER_RANKS_COLLECTION + "-" + ContextHolder.getGuildId());
+//        MongoCollection<Document> gamesInProgressCollection = database.getCollection(GAMES_IN_PROGRESS_COLLECTION + "-" + ContextHolder.getGuildId());
+//
+//        collection.deleteOne(new Document("puuid", puuid));
+//
+//    }
+
+
+    public void deletePlayer(String name, String tagline) throws Exception {
+        // Get player PUUID from Riot API
+
+        // Get database and collections
+        MongoDatabase database = mongoDbAdapter.getDatabase();
+        String guildId = ContextHolder.getGuildId();
+        MongoCollection<Document> ranksCollection = database.getCollection(SERVER_RANKS_COLLECTION + "-" + guildId);
+        MongoCollection<Document> gamesInProgressCollection = database.getCollection(GAMES_IN_PROGRESS_COLLECTION + "-" + guildId);
+
+
+        Document player = ranksCollection.find(
+                Filters.and(
+                        Filters.regex("name", "^" + Pattern.quote(name) + "$", "i"),
+                        Filters.regex("tagline", "^" + Pattern.quote(tagline) + "$", "i")
+                )
+        ).first();
+
+        if(player == null){
+            throw new Exception("El jugador no existe en la base de datos");
+        }
+
+        String puuid = player.getString("puuid");
+
+        // Delete player from ranks collection
+        ranksCollection.deleteOne(new Document("puuid", puuid));
+
+        // Find and delete player from any games in progress
+        Document gameQuery = new Document("participants",
+                new Document("$elemMatch", new Document("puuid", puuid)));
+
+        // First, find the games the player is in
+        FindIterable<Document> games = gamesInProgressCollection.find(gameQuery);
+
+        for (Document game : games) {
+            List<Document> participants = game.getList("participants", Document.class);
+
+            // Remove the player from participants
+            participants.removeIf(participant ->
+                    participant.getString("puuid").equals(puuid));
+
+            if (participants.isEmpty()) {
+                // If no participants left, delete the whole game
+                gamesInProgressCollection.deleteOne(new Document("_id", game.getObjectId("_id")));
+            } else {
+                // Update the game with the remaining participants
+                gamesInProgressCollection.updateOne(
+                        new Document("_id", game.getObjectId("_id")),
+                        new Document("$set", new Document("participants", participants))
+                );
+            }
+        }
+    }
     /**
      * Extract participant PUUIDs from a list of participant documents.
      */
