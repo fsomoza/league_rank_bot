@@ -52,6 +52,7 @@ public class SharedTaskQueue {
         List<Guild> guilds = jda.getGuilds();
 
         for (Guild guild : guilds) {
+            if(guild.getName().contains("emoji-champions")) continue;
             try {
                 // Create a Runnable that processes this guild
                 Runnable guildTask = createGuildTask(guild);

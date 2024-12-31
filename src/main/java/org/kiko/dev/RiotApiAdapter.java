@@ -64,6 +64,43 @@ public class RiotApiAdapter {
 
 
 
+
+    public AccountInfo getByPuuid(String puuid) throws Exception {
+        String endpoint = String.format("/riot/account/v1/accounts/by-puuid/%s",
+                URLEncoder.encode(puuid, StandardCharsets.UTF_8));
+
+        while (true) {
+            if (!simpleRateLimiter.canProceed(APP_LIMIT)) {
+                simpleRateLimiter.awaitRateLimit(APP_LIMIT);
+                continue;
+            }
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(BASE_URL + endpoint))
+                    .header("X-Riot-Token", RIOT_API_KEY)
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = client.send(request,
+                    HttpResponse.BodyHandlers.ofString());
+
+            // Update rate limit based on response
+            simpleRateLimiter.updateRateLimit(APP_LIMIT, response);
+
+            if (response.statusCode() == HttpURLConnection.HTTP_OK) {
+                return gson.fromJson(response.body(), AccountInfo.class);
+            } else if (response.statusCode() == 429) { // Rate limit hit
+                HttpHeaders headers = response.headers();
+                System.out.println("Rate limit exceeded in getByPuuid");
+                System.out.println("Retry after " + headers.map().get("retry-after"));
+                continue; // Will retry after waiting
+            } else {
+                handleErrorResponse(response);
+                return null;
+            }
+        }
+    }
+
     public AccountInfo getPuuid(String name, String tagLine) throws Exception {
         String endpoint = String.format("/riot/account/v1/accounts/by-riot-id/%s/%s",
                 URLEncoder.encode(name, StandardCharsets.UTF_8),
@@ -143,17 +180,21 @@ public class RiotApiAdapter {
                     JsonObject participant = participantElement.getAsJsonObject();
                     String participantPuuid = participant.get("puuid").getAsString();
 
-                    if (playersMap.containsKey(participantPuuid)) {
-
                         Participant participantObj = new Participant();
                         participantObj.setPuuid(participantPuuid);
                         participantObj.setChampionId(participant.get("championId").getAsString());
                         participantObj.setPlayerName(playersMap.get(participantPuuid));
+                        participantObj.setSummonerId(participant.get("summonerId").getAsString());
+                        participantObj.setTeamId(participant.get("teamId").getAsLong());
+                        if (playersMap.containsKey(participantPuuid)) {
+                            participantObj.setRegisteredPlayer(true);
+                            playersMap.remove(participantPuuid);
+                        }
                         participants.add(participantObj);
                         currentGameInfo.setParticipants(participants);
-                        playersMap.remove(participantPuuid);
 
-                    }
+
+
                 }
                 return currentGameInfo;
             } else if (response.statusCode() == 429) {
@@ -332,7 +373,7 @@ public class RiotApiAdapter {
         }
     }
 
-    public String getSoloQueueRank(String encryptedSummonerId) throws Exception {
+    public Optional<LeagueEntry> getSoloQueueRank(String encryptedSummonerId) throws Exception {
 
         while (true) {
             if (!simpleRateLimiter.canProceed(APP_LIMIT)) {
@@ -363,16 +404,21 @@ public class RiotApiAdapter {
                         .filter(entry -> "RANKED_SOLO_5x5".equals(entry.getQueueType()))
                         .findFirst();
 
-                if (soloQueue.isPresent()) {
-                    LeagueEntry entry = soloQueue.get();
-                    return String.format("%s %s %d LP",
-                            entry.getTier(),
-                            entry.getRank(),
-                            entry.getLeaguePoints());
-                } else {
-                    return "JUEGA RANKEDS";
-                }
+//                if (soloQueue.isPresent()) {
+//                    LeagueEntry entry = soloQueue.get();
+//                    return String.format("%s %s %d LP",
+//                            entry.getTier(),
+//                            entry.getRank(),
+//                            entry.getLeaguePoints());
+//                } else {
+//                    return "JUEGA RANKEDS";
+//                }
+
+                return soloQueue;
             } else if (response.statusCode() == 429) { // Rate limit hit
+                HttpHeaders headers = response.headers();
+                System.out.println("Rate limit exceeded in getSoloQueueRank");
+                System.out.println("Retry after " + headers.map().get("retry-after"));
                 continue; // Will retry after waiting
             }else {
                 handleErrorResponse(response);
@@ -381,7 +427,7 @@ public class RiotApiAdapter {
         }
     }
 
-    public String getFlexQueueRank(String encryptedSummonerId) throws Exception {
+    public Optional<LeagueEntry> getFlexQueueRank(String encryptedSummonerId) throws Exception {
 
         while (true) {
             if (!simpleRateLimiter.canProceed(APP_LIMIT)) {
@@ -412,16 +458,20 @@ public class RiotApiAdapter {
                         .filter(entry -> "RANKED_FLEX_SR".equals(entry.getQueueType()))
                         .findFirst();
 
-                if (flexQueue.isPresent()) {
-                    LeagueEntry entry = flexQueue.get();
-                    return String.format("%s %s %d LP",
-                            entry.getTier(),
-                            entry.getRank(),
-                            entry.getLeaguePoints());
-                } else {
-                    return "JUEGA RANKEDS";
-                }
+//                if (flexQueue.isPresent()) {
+//                    LeagueEntry entry = flexQueue.get();
+//                    return String.format("%s %s %d LP",
+//                            entry.getTier(),
+//                            entry.getRank(),
+//                            entry.getLeaguePoints());
+//                } else {
+//                    return "JUEGA RANKEDS";
+//                }
+                return flexQueue;
             }else if (response.statusCode() == 429) { // Rate limit hit
+                HttpHeaders headers = response.headers();
+                System.out.println("Rate limit exceeded in getFlexQueueRank");
+                System.out.println("Retry after " + headers.map().get("retry-after"));
                 continue; // Will retry after waiting
             } else {
                 handleErrorResponse(response);
@@ -431,7 +481,7 @@ public class RiotApiAdapter {
     }
 
 
-    public Map<String, String> getQueueRanks(String encryptedSummonerId) throws Exception {
+    public List<LeagueEntry> getQueueRanks(String encryptedSummonerId) throws Exception {
 
         while (true) {
             if (!simpleRateLimiter.canProceed(APP_LIMIT)) {
@@ -462,18 +512,20 @@ public class RiotApiAdapter {
                 }.getType();
                 List<LeagueEntry> entries = gson.fromJson(response.body(), listType);
 
-                entries.stream()
-                        .filter(entry -> entry.getQueueType().equals("RANKED_SOLO_5x5") ||
-                                entry.getQueueType().equals("RANKED_FLEX_SR"))
-                        .forEach(entry -> ranks.put(
-                                entry.getQueueType(),
-                                String.format("%s %s %d LP",
-                                        entry.getTier(),
-                                        entry.getRank(),
-                                        entry.getLeaguePoints())
-                        ));
+//                entries.stream()
+//                        .filter(entry -> entry.getQueueType().equals("RANKED_SOLO_5x5") ||
+//                                entry.getQueueType().equals("RANKED_FLEX_SR"))
+//                        .forEach(entry -> ranks.put(
+//                                entry.getQueueType(),
+//                                String.format("%s %s %d LP",
+//                                        entry.getTier(),
+//                                        entry.getRank(),
+//                                        entry.getLeaguePoints())
+//                        ));
+//
+//                return ranks;
 
-                return ranks;
+                return entries;
             }else if (response.statusCode() == 429) { // Rate limit hit
                 continue; // Will retry after waiting
             } else {
@@ -483,39 +535,6 @@ public class RiotApiAdapter {
         }
     }
 
-
-    public LeagueEntry getSoloQueusdsdseRank(String encryptedSummonerId) throws Exception {
-        String endpoint = String.format("/lol/league/v4/entries/by-summoner/%s",
-                URLEncoder.encode(encryptedSummonerId, StandardCharsets.UTF_8));
-
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
-                .header("X-Riot-Token", RIOT_API_KEY)
-                .GET()
-                .build();
-
-        HttpResponse<String> response = client.send(request,
-                HttpResponse.BodyHandlers.ofString());
-
-        if (response.statusCode() == HttpURLConnection.HTTP_OK) {
-            Type listType = new TypeToken<List<LeagueEntry>>() {}.getType();
-            List<LeagueEntry> entries = gson.fromJson(response.body(), listType);
-
-            Optional<LeagueEntry> soloQueue = entries.stream()
-                    .filter(entry -> "RANKED_SOLO_5x5".equals(entry.getQueueType()))
-                    .findFirst();
-
-            if (soloQueue.isPresent()) {
-                LeagueEntry entry = soloQueue.get();
-                return entry;
-            } else {
-                return null;
-            }
-        } else {
-            handleErrorResponse(response);
-            return null;
-        }
-    }
 
     // Helper method to handle non-200 responses
     private void handleErrorResponse(HttpResponse<String> response) throws Exception {
