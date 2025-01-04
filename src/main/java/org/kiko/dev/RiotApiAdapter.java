@@ -249,29 +249,29 @@ public class RiotApiAdapter {
             if (response.statusCode() == HttpURLConnection.HTTP_OK) {
                 JsonObject jsonObject = gson.fromJson(response.body(), JsonObject.class);
                 JsonObject info = jsonObject.get("info").getAsJsonObject();
+                completedGameInfo.setGameDuration(info.get("gameDuration").getAsLong());
                 JsonArray participants = info.get("participants").getAsJsonArray();
                 for (JsonElement participantElement : participants) {
                     JsonObject participant = participantElement.getAsJsonObject();
                     String participantPuuid = participant.get("puuid").getAsString();
-                    if (participantPuuids.contains(participantPuuid)) {
 
-                        if (win == null) {
-                            win = participant.get("win").getAsBoolean();
-                        }
 
                         JsonObject player = participant.getAsJsonObject();
                         CompletedGameInfoParticipant completedGameInfoParticipant = new CompletedGameInfoParticipant();
+                        completedGameInfoParticipant.setPuuid(participant.get("puuid").getAsString());
+                        completedGameInfoParticipant.setTeamId(participant.get("teamId").getAsInt());
                         completedGameInfoParticipant.setPlayerName(player.get("riotIdGameName").getAsString());
-                        completedGameInfoParticipant.setChampion(player.get("championName").getAsString());
-                        //completedGameInfo.setWin(player.get("win").getAsBoolean());
+                        completedGameInfoParticipant.setChampion(player.get("championName").getAsString());;
+                        completedGameInfoParticipant.setChampionId(player.get("championId").getAsString());
                         String kills = player.get("kills").getAsString();
                         String deaths = player.get("deaths").getAsString();
                         String assists = player.get("assists").getAsString();
                         completedGameInfoParticipant.setKda(kills + "/" + deaths + "/" + assists);
+                        completedGameInfoParticipant.setWin(player.get("win").getAsBoolean());
+                        completedGameInfoParticipant.setTeamPosition(player.get("teamPosition").getAsString());
                         completedGameInfoParticipants.add(completedGameInfoParticipant);
-                    }
+
                 }
-                completedGameInfo.setWin(win);
                 return completedGameInfo;
             } else if (response.statusCode() == 429) {
                 HttpHeaders headers = response.headers();
