@@ -8,12 +8,15 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.*;
+import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Guild;
+import net.dv8tion.jda.api.entities.Icon;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.entities.emoji.RichCustomEmoji;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -22,8 +25,15 @@ import org.bson.conversions.Bson;
 
 import java.awt.*;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
+import java.time.Instant;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class RankService {
 
@@ -88,11 +98,14 @@ public class RankService {
         AccountInfo accountInfo = riotApiAdapter.getPuuid(name, tagline);
         String encryptedSummonerId = riotApiAdapter.getEncryptedSummonerId(accountInfo.getPuuid());
 
-        Map<String, String> ranks = riotApiAdapter.getQueueRanks(encryptedSummonerId);
+//        Map<String, String> ranks = riotApiAdapter.getQueueRanks(encryptedSummonerId);
+
+         List<RiotApiAdapter.LeagueEntry> entries = riotApiAdapter.getQueueRanks(encryptedSummonerId);
 
 
-        savePlayerInformation(accountInfo.getPuuid(), accountInfo.getGameName(), accountInfo.getTagLine(), ranks, encryptedSummonerId);
-        return buildPlayerRankEmbed(accountInfo, ranks);
+         savePlayerInformation(accountInfo.getPuuid(), accountInfo.getGameName(), accountInfo.getTagLine(), entries, encryptedSummonerId);
+        return buildPlayerRankEmbed(accountInfo, entries);
+        //return null;
     }
 
     public void actualizarInfo() throws Exception {
@@ -117,12 +130,37 @@ public class RankService {
                         getPlayerInformation(name, tagline);
 
                         // Optional: Add a small delay to avoid hitting rate limits
-                        Thread.sleep(2000);
+                        //Thread.sleep(2000);
 
                     } catch (Exception e) {
                         // Log the error but continue processing other documents
                         System.err.println("Error updating player: " + doc.toJson() + "\nError: " + e.getMessage());
                     }
+                }
+            }
+        }
+    }
+
+    public void cleanUpOldRecords() throws Exception {
+        MongoDatabase database = mongoDbAdapter.getDatabase();
+
+        // December 31, 2024 13:22:00 UTC
+        long cutoffTimestamp = 1735653129000L;
+
+        for (String collectionName : database.listCollectionNames()) {
+            if (collectionName.contains(SERVER_RANKS_COLLECTION)) {
+                ContextHolder.setGuildId(collectionName.split("-")[1]);
+                MongoCollection<Document> collection = database.getCollection(collectionName);
+
+                // Create a filter for documents with timestamp less than cutoff
+                Bson filter = Filters.lt("timestamp", cutoffTimestamp);
+
+                try {
+                    // Delete all documents matching the filter
+                    DeleteResult result = collection.deleteMany(filter);
+                    System.out.println("Deleted " + result.getDeletedCount() + " documents from collection: " + collectionName);
+                } catch (Exception e) {
+                    System.err.println("Error deleting documents from collection " + collectionName + ": " + e.getMessage());
                 }
             }
         }
@@ -137,6 +175,10 @@ public class RankService {
         Guild guild = ContextHolder.getGuild();
         //TextChannel channel = guild.getTextChannelById(CHANNEL_ID);
         TextChannel textChannel = guild.getTextChannelsByName("game_scanner", true).get(0);
+
+        if(ContextHolder.getGuildId().equals("1145760061042458674")){
+            System.out.println("GuildId: " + ContextHolder.getGuildId());
+        }
 
         MongoDatabase database = mongoDbAdapter.getDatabase();
         MongoCollection<Document> serverRanksCollection = database.getCollection(SERVER_RANKS_COLLECTION + "-" + ContextHolder.getGuildId());
@@ -160,7 +202,8 @@ public class RankService {
             // Only check players not known to be in-game
             if (playersMap.containsKey(puuid)) {
                 CurrentGameInfo currentGameInfo = riotApiAdapter.checkIfPlayerIsInGame(puuid, playersMap);
-                if (currentGameInfo != null) {
+                //TODO: QUICK HACK TO SKIP THE CUSTOM GAMES THAT DONT APPEAR IN THE MATCH HISTORY
+                if (currentGameInfo != null && getQueueType(currentGameInfo.getQueueType()) != "UNKNOWN") {
                     handlePlayerInGame(currentGameInfo, textChannel, gamesInProgressCollection);
                 }
             }
@@ -173,7 +216,7 @@ public class RankService {
      * @throws IOException if network or parsing fails.
      */
     public void fetchAndStoreChampions() throws IOException {
-        String url = "https://ddragon.leagueoflegends.com/cdn/14.23.1/data/en_US/champion.json";
+        String url = "https://ddragon.leagueoflegends.com/cdn/14.24.1/data/en_US/champion.json";
         OkHttpClient client = new OkHttpClient();
 
         try (Response response = client.newCall(new Request.Builder().url(url).build()).execute()) {
@@ -198,8 +241,9 @@ public class RankService {
                 Map.Entry<String, JsonNode> entry = fields.next();
                 Champion champion = new ObjectMapper().treeToValue(entry.getValue(), Champion.class);
 
-                Document championDoc = new Document("id", champion.getKey())
-                        .append("name", champion.getName());
+                Document championDoc = new Document("id", champion.getId())
+                        .append("name", champion.getName())
+                        .append("key", champion.getKey());
 
                 collection.replaceOne(
                         new Document("id", champion.getId()),
@@ -245,20 +289,66 @@ public class RankService {
     /**
      * Saves or updates a player's rank information in MongoDB.
      */
-    private void savePlayerInformation(String puuid, String name, String tagline, Map<String,String> playerRanks, String encryptedSummonerId) {
+    /**
+     * Saves or updates a player's rank information in MongoDB.
+     */
+    private void savePlayerInformation(String puuid, String name, String tagline, List<RiotApiAdapter.LeagueEntry> playerRanks, String encryptedSummonerId) {
         MongoDatabase database = mongoDbAdapter.getDatabase();
         MongoCollection<Document> collection = database.getCollection(SERVER_RANKS_COLLECTION + "-" +ContextHolder.getGuildId());
 
-        int soloQelo = computeElo(playerRanks.get("RANKED_SOLO_5x5"));
-        int flexQelo = computeElo(playerRanks.get("RANKED_FLEX_SR"));
+        int soloQelo = 0;
+        int flexQelo = 0;
+        int soloQwins = 0;
+        int flexQwins = 0;
+        int soloQlosses = 0;
+        int flexQlosses = 0;
+        double soloQwinrate = 0.0;
+        double flexQwinrate = 0.0;
+        String soloQRank = "JUEGA RANKEDS";
+        String flexQRank = "JUEGA RANKEDS";
+
+        for(RiotApiAdapter.LeagueEntry entry : playerRanks){
+            if(entry.getQueueType().equals("RANKED_SOLO_5x5")){
+                soloQRank = String.format("%s %s %d LP",
+                        entry.getTier(),
+                        entry.getRank(),
+                        entry.getLeaguePoints());
+                soloQelo = computeElo(soloQRank);
+                soloQwins = entry.getWins();
+                soloQlosses = entry.getLosses();
+                // Calculate solo queue winrate
+                int totalSoloGames = soloQwins + soloQlosses;
+                soloQwinrate = totalSoloGames > 0 ? (double) soloQwins / totalSoloGames * 100 : 0.0;
+            }
+
+            if(entry.getQueueType().equals("RANKED_FLEX_SR")){
+                flexQRank = String.format("%s %s %d LP",
+                        entry.getTier(),
+                        entry.getRank(),
+                        entry.getLeaguePoints());
+                flexQelo = computeElo(flexQRank);
+                flexQwins = entry.getWins();
+                flexQlosses = entry.getLosses();
+                // Calculate flex queue winrate
+                int totalFlexGames = flexQwins + flexQlosses;
+                flexQwinrate = totalFlexGames > 0 ? (double) flexQwins / totalFlexGames * 100 : 0.0;
+            }
+        }
+
         Document playerDoc = new Document("puuid", puuid)
                 .append("encryptedSummonerId", encryptedSummonerId)
                 .append("name", name)
                 .append("tagline", tagline)
-                .append("soloQRank", playerRanks.get("RANKED_SOLO_5x5"))
+                .append("soloQRank", soloQRank)
                 .append("soloQElo", soloQelo)
-                .append("flexQRank", playerRanks.get("RANKED_FLEX_SR"))
+                .append("soloQwins", soloQwins)
+                .append("soloQlosses", soloQlosses)
+                .append("soloQwinrate", Math.round(soloQwinrate * 100.0) / 100.0)  // Round to 2 decimal places
+                .append("flexQRank", flexQRank)
                 .append("flexQElo", flexQelo)
+                .append("flexQwins", flexQwins)
+                .append("flexQlosses", flexQlosses)
+                .append("flexQwinrate", Math.round(flexQwinrate * 100.0) / 100.0)  // Round to 2 decimal places
                 .append("timestamp", System.currentTimeMillis());
 
         collection.replaceOne(
@@ -269,12 +359,37 @@ public class RankService {
     }
 
     private void updatePlayerRank(String puuid, String queueType, String encryptedSummonerId) throws Exception {
+        int elo = 0;
+        int wins = 0;
+        int losses = 0;
+        double winrate = 0.0;
+        String rank = "JUEGA RANKEDS";
 
-        String rank;
-        if(queueType.equals("RANKED_SOLO/DUO")){
-             rank = riotApiAdapter.getSoloQueueRank(encryptedSummonerId);
-        }else{
-            rank = riotApiAdapter.getFlexQueueRank(encryptedSummonerId);
+        Optional<RiotApiAdapter.LeagueEntry> optionalEntry;
+        RiotApiAdapter.LeagueEntry entry;
+
+        if(queueType.equals("RANKED_SOLO/DUO")) {
+            optionalEntry = riotApiAdapter.getSoloQueueRank(encryptedSummonerId);
+            entry = optionalEntry.get();
+            rank = String.format("%s %s %d LP",
+                    entry.getTier(),
+                    entry.getRank(),
+                    entry.getLeaguePoints());
+            elo = computeElo(rank);
+            wins = entry.getWins();
+            losses = entry.getLosses();
+            winrate = wins > 0 ? (double) wins / (wins + losses) * 100 : 0.0;
+        }else {
+            optionalEntry = riotApiAdapter.getFlexQueueRank(encryptedSummonerId);
+            entry = optionalEntry.get();
+            rank = String.format("%s %s %d LP",
+                    entry.getTier(),
+                    entry.getRank(),
+                    entry.getLeaguePoints());
+            elo = computeElo(rank);
+            wins = entry.getWins();
+            losses = entry.getLosses();
+            winrate = wins > 0 ? (double) wins / (wins + losses) * 100 : 0.0;
         }
 
         // Get the database and collection
@@ -288,9 +403,11 @@ public class RankService {
         Document update;
 
         if(queueType.equals("RANKED_SOLO/DUO")){
-             update = new Document("$set", new Document("soloQRank", rank).append("soloQElo", computeElo(rank)));
+             update = new Document("$set", new Document("soloQRank", rank).append("soloQElo", elo).append("soloQwins", wins).append("soloQlosses", losses).
+                     append("soloQwinrate", Math.round(winrate * 100.0) / 100.0));  // Round to 2 decimal places
         }else{
-             update = new Document("$set", new Document("flexQRank", rank).append("flexQElo", computeElo(rank)));
+             update = new Document("$set", new Document("flexQRank", rank).append("flexQElo", elo).append("flexQwins", wins).append("flexQlosses", losses).
+                     append("flexQwinrate", Math.round(winrate * 100.0) / 100.0));  // Round to 2 decimal places
         }
 
         // Perform the update with upsert option
@@ -327,7 +444,7 @@ public class RankService {
                     CompletedGameInfo completedGameInfo = riotApiAdapter.checkCompletedGame(foundGameId, participantPuuids);
                     completedGameInfo.setQueueType(gameDoc.getString("queueType"));
 
-                    channel.sendMessageEmbeds(buildEmbedMessage(completedGameInfo))
+                    channel.sendMessageEmbeds(buildEmbedMessage(completedGameInfo, participantPuuids))
                             .setMessageReference(gameDoc.getString("messageId"))
                             .queue(message -> {
                                 //TODO maybe implement a retry mechanism here in case the message is not sent
@@ -410,19 +527,23 @@ public class RankService {
      * Handles a current game situation by notifying the channel and updating the DB.
      */
     private void handlePlayerInGame(CurrentGameInfo currentGameInfo, TextChannel channel,
-                                    MongoCollection<Document> gamesInProgressCollection) {
+                                    MongoCollection<Document> gamesInProgressCollection) throws Exception {
 
         List<Participant> participants = currentGameInfo.getParticipants();
         List<Document> participantDocs = new ArrayList<>();
 
         for (Participant participant : participants) {
 
-            participantDocs.add(new Document("puuid", participant.getPuuid())
-                    .append("championId", participant.getChampionId())
-                    .append("playerName", participant.getPlayerName()));
+            if(participant.isRegisteredPlayer()){
+                participantDocs.add(new Document("puuid", participant.getPuuid())
+                        .append("championId", participant.getChampionId())
+                        .append("playerName", participant.getPlayerName()));
+            }
         }
 
-        channel.sendMessageEmbeds(buildOngoingGameEmbed(currentGameInfo, participants))
+         enrichCurrentGameInfo(currentGameInfo);
+
+        channel.sendMessageEmbeds(buildOngoingGameEmbed(currentGameInfo))
                 .queue(message -> {
                     //TODO maybe implement a retry mechanism here in case the message is not sent
                     // also need to think about possible race conditions and how to handle them
@@ -465,10 +586,202 @@ public class RankService {
                     failure.printStackTrace();
                 });
 
-
-
-
     }
+
+    private CurrentGameInfo enrichCurrentGameInfo(CurrentGameInfo currentGameInfo) throws Exception {
+        String guildId = ContextHolder.getGuildId();
+        MongoDatabase database = mongoDbAdapter.getDatabase();
+        MongoCollection<Document> ranksCollection = database.getCollection(SERVER_RANKS_COLLECTION + "-" + guildId);
+
+        String queueType = getQueueType(currentGameInfo.getQueueType());
+
+        List<Participant> participants = currentGameInfo.getParticipants();
+
+        for (Participant participant : participants) {
+            if(participant.isRegisteredPlayer()){
+                Document player = ranksCollection.find(new Document("puuid", participant.getPuuid())).first();
+                if(player != null){
+                    participant.setRank(queueType.equals("RANKED_FLEX") ? player.getString("flexQRank") : player.getString("soloQRank"));
+                    participant.setLosses(queueType.equals("RANKED_FLEX") ? player.getInteger("flexQlosses") : player.getInteger("soloQlosses"));
+                    participant.setWins(queueType.equals("RANKED_FLEX") ? player.getInteger("flexQwins") : player.getInteger("soloQwins"));
+                    participant.setWinrate(queueType.equals("RANKED_FLEX") ? player.getDouble("flexQwinrate") : player.getDouble("soloQwinrate"));;
+                }
+            }else{
+
+                participant.setPlayerName(riotApiAdapter.getByPuuid(participant.getPuuid()).getGameName());
+
+                Optional<RiotApiAdapter.LeagueEntry> optionalEntry = queueType.equals("RANKED_FLEX") ? riotApiAdapter.getFlexQueueRank(participant.getSummonerId()) :
+                        riotApiAdapter.getSoloQueueRank(participant.getSummonerId());
+                if(optionalEntry.isPresent()){
+                    RiotApiAdapter.LeagueEntry entry = optionalEntry.get();
+                    participant.setRank(String.format("%s %s %d LP",
+                            entry.getTier(),
+                            entry.getRank(),
+                            entry.getLeaguePoints()));
+                    participant.setLosses(entry.getLosses());
+                    participant.setWins(entry.getWins());
+                    int totalGames = entry.getWins() + entry.getLosses();
+                    double winrate = totalGames > 0 ? (double) entry.getWins() / totalGames * 100 : 0.0;
+                    participant.setWinrate(Math.round(winrate * 100.0) / 100.0);
+                }
+            }
+        }
+
+        return currentGameInfo;
+    }
+
+
+    public void deletePlayer(String name, String tagline) throws Exception {
+        // Get player PUUID from Riot API
+
+        // Get database and collections
+        MongoDatabase database = mongoDbAdapter.getDatabase();
+        String guildId = ContextHolder.getGuildId();
+        MongoCollection<Document> ranksCollection = database.getCollection(SERVER_RANKS_COLLECTION + "-" + guildId);
+        MongoCollection<Document> gamesInProgressCollection = database.getCollection(GAMES_IN_PROGRESS_COLLECTION + "-" + guildId);
+
+
+        Document player = ranksCollection.find(
+                Filters.and(
+                        Filters.regex("name", "^" + Pattern.quote(name) + "$", "i"),
+                        Filters.regex("tagline", "^" + Pattern.quote(tagline) + "$", "i")
+                )
+        ).first();
+
+        if(player == null){
+            throw new Exception("El jugador no existe en la base de datos");
+        }
+
+        String puuid = player.getString("puuid");
+
+        // Delete player from ranks collection
+        ranksCollection.deleteOne(new Document("puuid", puuid));
+
+        // Find and delete player from any games in progress
+        Document gameQuery = new Document("participants",
+                new Document("$elemMatch", new Document("puuid", puuid)));
+
+        // First, find the games the player is in
+        FindIterable<Document> games = gamesInProgressCollection.find(gameQuery);
+
+        for (Document game : games) {
+            List<Document> participants = game.getList("participants", Document.class);
+
+            // Remove the player from participants
+            participants.removeIf(participant ->
+                    participant.getString("puuid").equals(puuid));
+
+            if (participants.isEmpty()) {
+                // If no participants left, delete the whole game
+                gamesInProgressCollection.deleteOne(new Document("_id", game.getObjectId("_id")));
+            } else {
+                // Update the game with the remaining participants
+                gamesInProgressCollection.updateOne(
+                        new Document("_id", game.getObjectId("_id")),
+                        new Document("$set", new Document("participants", participants))
+                );
+            }
+        }
+    }
+
+
+    public void createCustomEmojiFromURL() {
+
+
+        String guild2 = "1323016315841282180";
+        String guild3 = "1323016358157615194";
+        String guild4 = "1323016391573508168";
+
+        MongoDatabase database = mongoDbAdapter.getDatabase();
+        MongoCollection<Document> serverRanksCollection = database.getCollection(CHAMPIONS_COLLECTION);
+
+        List<Document> champions = serverRanksCollection.find().into(new ArrayList<>());
+        AtomicInteger counter = new AtomicInteger();
+
+        AtomicReference<Guild> guild = new AtomicReference<>(jda.getGuildById("1323016231485440000"));
+        System.out.println("Guild Name: " + guild.get().getName() + ", Guild ID: " + guild.get().getId());
+
+        champions.stream().forEach(champion -> {
+            counter.getAndIncrement();
+            String championName = champion.getString("id");
+            System.out.println(champion.getString("name"));
+
+            try {
+                Thread.sleep(4000); // Add delay to avoid rate limits
+
+                try (InputStream imageStream = new URL("https://ddragon.leagueoflegends.com/cdn/14.24.1/img/champion/" + champion.getString("id") + ".png").openStream()) {
+                    guild.get().createEmoji(championName, Icon.from(imageStream)).queue(
+                            emoji -> System.out.println("Created emoji: " + emoji.getName()),
+                            error -> System.err.println("Failed to create emoji: " + error.getMessage())
+                    );
+
+                    if(counter.get() == 50) {
+                        guild.set(jda.getGuildById(guild2));
+                        System.out.println("Switching to guild 2");
+                    } else if(counter.get() == 100) {
+                        guild.set(jda.getGuildById(guild3));
+                        System.out.println("Switching to guild 3");
+                    } else if(counter.get() == 150) {
+                        guild.set(jda.getGuildById(guild4));
+                        System.out.println("Switching to guild 4");
+                    }
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
+    }
+
+
+    public void updateChampionsWithEmojiIds() {
+        List<String> guildIds = Arrays.asList(
+                "1323016231485440000",  // Guild 1
+                "1323016315841282180",  // Guild 2
+                "1323016358157615194",  // Guild 3
+                "1323016391573508168"   // Guild 4
+        );
+
+        MongoDatabase database = mongoDbAdapter.getDatabase();
+        MongoCollection<Document> championsCollection = database.getCollection(CHAMPIONS_COLLECTION);
+
+        // Create a map to store champion name to emoji ID mapping
+        Map<String, String> championEmojiMap = new HashMap<>();
+
+        // Iterate through all guilds and collect emoji information
+        for (String guildId : guildIds) {
+            Guild guild = jda.getGuildById(guildId);
+            if (guild != null) {
+                System.out.println("Processing guild: " + guild.getName());
+
+                List<RichCustomEmoji> emojis = guild.getEmojis();
+                for (RichCustomEmoji emoji : emojis) {
+                    // Store the emoji ID mapped to the champion name
+                    championEmojiMap.put(emoji.getName(), emoji.getId());
+                }
+            }
+        }
+
+        // Update the champions collection with emoji IDs
+        for (Map.Entry<String, String> entry : championEmojiMap.entrySet()) {
+            String championName = entry.getKey();
+            String emojiId = entry.getValue();
+
+            // Update the document in MongoDB
+            UpdateResult result = championsCollection.updateOne(
+                    Filters.eq("id", championName),
+                    Updates.set("emojiId", emojiId)
+            );
+
+            if (result.getModifiedCount() > 0) {
+                System.out.println("Updated champion " + championName + " with emoji ID: " + emojiId);
+            } else {
+                System.out.println("No champion found for name: " + championName);
+            }
+        }
+
+        System.out.println("Finished updating champions with emoji IDs");
+    }
+
 
     /**
      * Extract participant PUUIDs from a list of participant documents.
@@ -485,65 +798,329 @@ public class RankService {
     // MESSAGE AND EMBED BUILDERS
     // ----------------------------------------------
 
-    private MessageEmbed buildEmbedMessage(CompletedGameInfo completedGameInfo) {
-        EmbedBuilder embed = new EmbedBuilder();
-        embed.setColor(completedGameInfo.getWin() ? Color.GREEN : Color.RED);
-        embed.setTitle("🎉 Partida Finalizada!");
-        embed.setDescription("**Modo de juego:** " + completedGameInfo.getQueueType());
-        embed.addField("Resultado", completedGameInfo.getWin() ? "🏆 VICTORIA" : "💀 DERROTA", true);
+    private MessageEmbed buildEmbedMessage(CompletedGameInfo completedGameInfo, Set<String> participantPuuids) {
 
-        // Build players table
-        StringBuilder tableBuilder = new StringBuilder();
-        tableBuilder.append("```")
-                .append(String.format("%-20s %-15s %-5s%n", "Jugador", "Campeón", "KDA"))
-                .append(String.format("%-20s %-15s %-5s%n", "--------------------", "---------------", "----"));
+        MongoDatabase database = mongoDbAdapter.getDatabase();
+        MongoCollection<Document> championsCollection = database.getCollection(CHAMPIONS_COLLECTION);
 
-        for (CompletedGameInfoParticipant participant : completedGameInfo.getParticipants()) {
-            tableBuilder.append(
-                    String.format("%-20s %-15s %-5s%n",
-                            participant.getPlayerName(),
-                            participant.getChampion(),
-                            participant.getKda()));
+
+
+        completedGameInfo.getParticipants().stream().forEach(
+                participant -> participant.setRegisteredPlayer(participantPuuids.contains(participant.getPuuid()))
+        );
+
+
+        // Find the first registered player and determine if they won
+        boolean registeredPlayerWon = completedGameInfo.getParticipants().stream()
+                .filter(participant -> participant.isRegisteredPlayer())
+                .findFirst()
+                .map(participant -> participant.isWin())
+                .orElse(false);
+
+        // Separate participants by team
+        List<CompletedGameInfoParticipant> blueTeam = completedGameInfo.getParticipants().stream()
+                .filter(p -> p.getTeamId() == 100)
+                .collect(Collectors.toList());
+        List<CompletedGameInfoParticipant> redTeam = completedGameInfo.getParticipants().stream()
+                .filter(p -> p.getTeamId() == 200)
+                .collect(Collectors.toList());
+
+        // Determine which side won
+        boolean blueTeamWin = blueTeam.stream().anyMatch(CompletedGameInfoParticipant::isWin);
+        boolean redTeamWin  = redTeam.stream().anyMatch(CompletedGameInfoParticipant::isWin);
+
+        String blueTeamResult = blueTeamWin ? "Win" : "Defeat";
+        String redTeamResult  = redTeamWin  ? "Win" : "Defeat";
+
+        // Sum kills for scoreboard: e.g., "22 - 17"
+        int[] blueTotals = sumTeamKda(blueTeam);
+        int[] redTotals  = sumTeamKda(redTeam);
+
+        int blueKills = blueTotals[0];
+        int redKills  = redTotals[0];
+
+        // Build column fields for the embed
+        //  -- Column 1: Blue Summoner Names
+        //  -- Column 2: KDA strings (blue vs red)
+        //  -- Column 3: Red Summoner Names
+
+        StringBuilder blueTeamNames = new StringBuilder();
+        StringBuilder kdaColumn     = new StringBuilder();
+        StringBuilder redTeamNames  = new StringBuilder();
+
+        // We'll iterate over the maximum size of either team
+        int maxSize = Math.max(blueTeam.size(), redTeam.size());
+        for (int i = 0; i < maxSize; i++) {
+            CompletedGameInfoParticipant bp = (i < blueTeam.size()) ? blueTeam.get(i) : null;
+            CompletedGameInfoParticipant rp = (i < redTeam.size()) ? redTeam.get(i) : null;
+
+            // --- Blue side
+            if (bp != null) {
+                Document champion = championsCollection.find(new Document("key", bp.getChampionId())).first();
+                blueTeamNames.append("<:"+ champion.getString("id") +":"+ champion.getString("emojiId") +"> | ");
+                if (bp.isRegisteredPlayer()) {
+                    blueTeamNames.append("__**").append(bp.getPlayerName()).append("**__");
+                } else {
+                    blueTeamNames.append(bp.getPlayerName());
+                }
+                blueTeamNames.append("\n");
+            } else {
+                blueTeamNames.append("\n"); // Keep line alignment if teams are uneven
+            }
+
+            // --- Middle KDA (combine both sides into one line, or just do Blue KDA + " | " + Red KDA)
+            String blueKda = (bp != null) ? bp.getKda() : "";
+            String redKda  = (rp != null) ? rp.getKda() : "";
+            // Example: "5/8/3   12/3/12"
+            kdaColumn.append(String.format("%-7s ⚔️ %-7s", blueKda, redKda)).append("\n");
+
+            // --- Red side
+            if (rp != null) {
+                Document champion = championsCollection.find(new Document("key", rp.getChampionId())).first();
+                redTeamNames.append("<:"+ champion.getString("id") +":"+ champion.getString("emojiId") +"> | ");
+                if (rp.isRegisteredPlayer()) {
+                    redTeamNames.append("__**").append(rp.getPlayerName()).append("**__");
+                } else {
+                    redTeamNames.append(rp.getPlayerName());
+                }
+                redTeamNames.append("\n");
+            } else {
+                redTeamNames.append("\n");
+            }
         }
 
-        tableBuilder.append("```");
-        embed.addField("Jugadores en la partida", tableBuilder.toString(), false);
+        // Now build the embed
+        EmbedBuilder embed = new EmbedBuilder();
 
-        embed.setFooter("💡 " + getFooterMessageForCompletedGame(completedGameInfo));
-        embed.setTimestamp(java.time.Instant.now());
+
+        List<CompletedGameInfoParticipant> participants = completedGameInfo.getParticipants();
+        String map = "Summoner's Rift";
+        String queueType = completedGameInfo.getQueueType();
+        if(queueType.contains("ARAM")){
+            map = "Bridge of progress";
+        }
+
+        // Build title with registered players
+        StringBuilder titleBuilder = new StringBuilder("🎉 Partida Finalizada! " + completedGameInfo.getQueueType() + " | " + map
+                + " | " + tranformSecondsToMMSS(completedGameInfo.getGameDuration()) + " | ");
+        List<String> registeredPlayers = participants.stream()
+                .filter(CompletedGameInfoParticipant::isRegisteredPlayer)
+                .map(p -> "**" + p.getPlayerName() + "**")
+                .collect(Collectors.toList());
+
+        if (!registeredPlayers.isEmpty()) {
+            titleBuilder.append("Players: ").append(String.join(", ", registeredPlayers));
+        }
+
+
+        // Use whichever color logic you prefer. If you have "completedGameInfo.getWin()"
+        // to reflect the "player's team" result, you can do that. For demonstration:
+        embed.setColor(registeredPlayerWon ? Color.GREEN : Color.RED);
+
+        // Title + description
+        embed.setTitle(titleBuilder.toString());
+
+        // Show a main "Resultado" field. If you track the player's perspective in completedGameInfo.getWin():
+        embed.addField("Resultado", registeredPlayerWon ? "🏆 VICTORIA" : "💀 DERROTA", false);
+
+        // Show the main scoreboard: e.g. "Blue Team - Defeat    22 - 17    Red Team - Win"
+//        String scoreboardTop = "Blue Team - " + blueTeamResult
+//                + "  " + blueKills + " - " + redKills + "  "
+//                + "Red Team - " + redTeamResult;
+//        embed.addField("Scoreboard", scoreboardTop, false);
+
+        // Add the columns for side-by-side participant lines
+        // 1) Blue Team column
+        embed.addField("Blue Team - " + blueTeamResult, blueTeamNames.toString(), true);
+
+        // 2) KDA column
+        embed.addField("KDA", kdaColumn.toString(), true);
+
+        // 3) Red Team column
+        embed.addField("Red Team - " + redTeamResult, redTeamNames.toString(), true);
+
+        // Footer with match duration, or anything else
+        embed.setTimestamp(Instant.now());
 
         return embed.build();
     }
 
-    private MessageEmbed buildOngoingGameEmbed(CurrentGameInfo currentGameInfo, List<Participant> participants) {
-        EmbedBuilder embed = new EmbedBuilder();
-        embed.setColor(0x1F8B4C);
-        embed.setTitle("🚨 Partida en curso detectada!");
-        embed.setDescription("**Modo de juego:** " + getQueueType(currentGameInfo.getQueueType()));
 
-        // Build participants table
-        StringBuilder tableBuilder = new StringBuilder();
-        tableBuilder.append("```")
-                .append(String.format("%-20s %-10s%n", "Player", "Champion"))
-                .append(String.format("%-20s %-10s%n", "--------------------", "----------"));
+    private String tranformSecondsToMMSS(long seconds) {
+        long minutes = seconds / 60;
+        long secondsLeft = seconds % 60;
+        return String.format("%02d:%02d", minutes, secondsLeft);
+    }
 
-        for (Participant participant : participants) {
-            tableBuilder.append(
-                    String.format("%-20s %-10s%n",
-                            participant.getPlayerName(),
-                            getChampionName(participant.getChampionId())));
+    /**
+     * Helper to sum Kills/Deaths/Assists from the participants' KDA strings.
+     * Returns an array [kills, deaths, assists].
+     */
+    private int[] sumTeamKda(List<CompletedGameInfoParticipant> teamParticipants) {
+        int kills = 0, deaths = 0, assists = 0;
+        for (CompletedGameInfoParticipant p : teamParticipants) {
+            int[] kdaParts = parseKDA(p.getKda());
+            kills   += kdaParts[0];
+            deaths  += kdaParts[1];
+            assists += kdaParts[2];
+        }
+        return new int[] { kills, deaths, assists };
+    }
+
+    /**
+     * Parses a string like "5/8/3" into int[] {5, 8, 3}.
+     */
+    private int[] parseKDA(String kda) {
+        if (kda == null || !kda.contains("/")) {
+            return new int[] { 0, 0, 0 };
+        }
+        try {
+            String[] parts = kda.split("/");
+            int k = Integer.parseInt(parts[0]);
+            int d = Integer.parseInt(parts[1]);
+            int a = Integer.parseInt(parts[2]);
+            return new int[] { k, d, a };
+        } catch (NumberFormatException e) {
+            return new int[] { 0, 0, 0 };
+        }
+    }
+
+    /**
+     * Formats game duration (in seconds) as mm:ss, e.g., "32:14".
+     */
+    private String formatDuration(long durationInSeconds) {
+        long minutes = durationInSeconds / 60;
+        long seconds = durationInSeconds % 60;
+        return String.format("%02d:%02d", minutes, seconds);
+    }
+
+
+
+//    private MessageEmbed buildOngoingGameEmbed(CurrentGameInfo currentGameInfo) {
+//
+//        List<Participant> participants = currentGameInfo.getParticipants();
+//
+//        EmbedBuilder embed = new EmbedBuilder();
+//        embed.setColor(0x1F8B4C);
+//        embed.setTitle("🚨 Partida en curso detectada!");
+//        embed.setDescription("**Modo de juego:** " + getQueueType(currentGameInfo.getQueueType()));
+//
+//        // Build participants table
+//        StringBuilder tableBuilder = new StringBuilder();
+//        tableBuilder.append("```")
+//                .append(String.format("%-20s %-10s%n", "Player", "Champion"))
+//                .append(String.format("%-20s %-10s%n", "--------------------", "----------"));
+//
+//        for (Participant participant : participants) {
+//            tableBuilder.append(
+//                    String.format("%-20s %-10s%n",
+//                            participant.getPlayerName(),
+//                            getChampionName(participant.getChampionId())));
+//        }
+//
+//        tableBuilder.append("```");
+//        embed.addField("Jugadores en la partida", tableBuilder.toString(), false);
+//
+//        String footerMessage = getQueueType(currentGameInfo.getQueueType()).contains("ARAM")
+//                ? "💡 Si no dejais que tiren los minions el nexo, sois unos sudorosos!"
+//                : "💡 Si os stompean, recordad que siempre es jungle diff!";
+//        embed.setFooter(footerMessage);
+//        embed.setTimestamp(java.time.Instant.now());
+//
+//        return embed.build();
+//    }
+
+
+    private MessageEmbed buildOngoingGameEmbed(CurrentGameInfo currentGameInfo) {
+        List<Participant> participants = currentGameInfo.getParticipants();
+        String map = "Summoner's Rift";
+        String queueType = getQueueType(currentGameInfo.getQueueType());
+        if(queueType.contains("ARAM")){
+            map = "Bridge of progress";
         }
 
-        tableBuilder.append("```");
-        embed.addField("Jugadores en la partida", tableBuilder.toString(), false);
+        // Build title with registered players
+        StringBuilder titleBuilder = new StringBuilder("\uD83D\uDEA8 Partida en curso detectada: " + getQueueType(currentGameInfo.getQueueType()) + " | " + map + " | ");
+        List<String> registeredPlayers = participants.stream()
+                .filter(Participant::isRegisteredPlayer)
+                .map(p -> "**" + p.getPlayerName() + "**")
+                .collect(Collectors.toList());
 
-        String footerMessage = getQueueType(currentGameInfo.getQueueType()).contains("ARAM")
-                ? "💡 Si no dejais que tiren los minions el nexo, sois unos sudorosos!"
-                : "💡 Si os stompean, recordad que siempre es jungle diff!";
-        embed.setFooter(footerMessage);
-        embed.setTimestamp(java.time.Instant.now());
+        if (!registeredPlayers.isEmpty()) {
+            titleBuilder.append("Players: ").append(String.join(", ", registeredPlayers));
+        }
+
+        EmbedBuilder embed = new EmbedBuilder();
+        embed.setTitle(titleBuilder.toString());
+        embed.setColor(0x1F8B4C);
+
+        // Create field for Blue Team
+        StringBuilder blueTeamField = new StringBuilder();
+        StringBuilder blueTeamRankField = new StringBuilder();
+        StringBuilder blueTeamStatsField = new StringBuilder();
+
+        // Create field for Red Team
+        StringBuilder redTeamField = new StringBuilder();
+        StringBuilder redTeamRankField = new StringBuilder();
+        StringBuilder redTeamStatsField = new StringBuilder();
+
+        MongoDatabase database = mongoDbAdapter.getDatabase();
+        MongoCollection<Document> championsCollection = database.getCollection(CHAMPIONS_COLLECTION);
+        //get the emoji by champion id
+
+
+        // Process participants and sort them into teams
+        for (Participant participant : participants) {
+            StringBuilder nameField = participant.getTeamId() == 100 ? blueTeamField : redTeamField;
+            StringBuilder rankField = participant.getTeamId() == 100 ? blueTeamRankField : redTeamRankField;
+            StringBuilder statsField = participant.getTeamId() == 100 ? blueTeamStatsField : redTeamStatsField;
+
+            // Add player name (with champion icon placeholder)
+
+            Document champion = championsCollection.find(new Document("key", participant.getChampionId())).first();
+//            nameField.append("🦸‍♂️ | ");
+            //nameField.append("<:Aatrox:1323017539508240464> | ");
+            nameField.append("<:"+ champion.getString("id") +":"+ champion.getString("emojiId") +"> | ");
+            if (participant.isRegisteredPlayer()) {
+                nameField.append("__**").append(participant.getPlayerName()).append("**__");
+            } else {
+                nameField.append(participant.getPlayerName());
+            }
+            nameField.append("\n");
+
+            // Add rank information (without emoji), ensure empty ranks still take a line
+            String rank = participant.getRank();
+            rankField.append(rank != null && !rank.isEmpty() ? rank : "\u200B").append("\n");
+
+            // Add winrate information, ensure empty winrates still take a line
+            String winrate = formatWinrate(participant.getWins(), participant.getLosses());
+            statsField.append(winrate != null && !winrate.isEmpty() ? winrate : "\u200B").append("\n");
+        }
+
+        String rankType = "SOLO/DUO";
+        if(getQueueType(currentGameInfo.getQueueType()).equals("RANKED_FLEX")){
+            rankType = "FLEX";
+        }
+        // Add fields to embed
+        embed.addField("Blue Team", blueTeamField.toString(), true);
+        embed.addField(  rankType+ " Rank", blueTeamRankField.toString(), true);
+        embed.addField("WR", blueTeamStatsField.toString(), true);
+
+        embed.addField("\u200B", "\u200B", false); // Empty field for spacing
+
+        embed.addField("Red Team", redTeamField.toString(), true);
+        embed.addField(rankType+ " Rank", redTeamRankField.toString(), true);
+        embed.addField("WR", redTeamStatsField.toString(), true);
 
         return embed.build();
+    }
+
+    // Helper method to format winrate only
+    private String formatWinrate(int wins, int losses) {
+        return String.format("%.1f%% (%dW/%dL)",
+                ((double) wins / (wins + losses)) * 100,
+                wins,
+                losses);
     }
 
     private String buildRankedPlayerTable(List<Document> players) {
@@ -609,7 +1186,7 @@ public class RankService {
         return embed.build();
     }
 
-    private MessageEmbed buildPlayerRankEmbed(AccountInfo accountInfo, Map<String, String> ranks) {
+    private MessageEmbed buildPlayerRankEmbed(AccountInfo accountInfo, List<RiotApiAdapter.LeagueEntry> leagueEntries) {
         EmbedBuilder embed = new EmbedBuilder();
         embed.setTitle("🎮 Player Rank Information");
         embed.setColor(Color.BLUE);
@@ -621,15 +1198,32 @@ public class RankService {
         contentBuilder.append("Player: ").append(playerIdentifier).append("\n");
         contentBuilder.append("─────────────────────────────\n");
 
-        // Add Solo Queue rank with icon
-        String soloQueueRank = ranks.getOrDefault("RANKED_SOLO_5x5", "Unranked");
-        contentBuilder.append("🏆 Solo Queue: ").append(soloQueueRank).append("\n\n");
+        // Process each queue type
+        for (RiotApiAdapter.LeagueEntry entry : leagueEntries) {
+            String queueIcon = entry.getQueueType().equals("RANKED_SOLO_5x5") ? "🏆" : "👥";
+            String queueName = entry.getQueueType().equals("RANKED_SOLO_5x5") ? "Solo Queue" : "Flex Queue";
 
-        // Add Flex Queue rank with icon
-        String flexQueueRank = ranks.getOrDefault("RANKED_FLEX_SR", "Unranked");
-        contentBuilder.append("👥 Flex Queue: ").append(flexQueueRank).append("\n");
+            String rankInfo = String.format("%s %s: %s %s %d LP (%dW/%dL)\n",
+                    queueIcon,
+                    queueName,
+                    entry.getTier(),
+                    entry.getRank(),
+                    entry.getLeaguePoints(),
+                    entry.getWins(),
+                    entry.getLosses()
+            );
+
+
+            contentBuilder.append(rankInfo).append("\n");
+        }
+
+        // Handle unranked case if no entries are found for a queue type
+        if (leagueEntries.isEmpty()) {
+            contentBuilder.append("🏆 Solo Queue: JUEGA RANKEDS\n");
+            contentBuilder.append("👥 Flex Queue: JUEGA RANKEDS\n");
+        }
+
         contentBuilder.append("```");
-
         embed.setDescription(contentBuilder.toString());
 
         // Add footer with timestamp
@@ -703,7 +1297,7 @@ public class RankService {
     private String getChampionName(String id) {
         MongoDatabase database = mongoDbAdapter.getDatabase();
         MongoCollection<Document> collection = database.getCollection(CHAMPIONS_COLLECTION);
-        Document champion = collection.find(new Document("id", id)).first();
+        Document champion = collection.find(new Document("key", id)).first();
         return champion != null ? champion.getString("name") : "Unknown Champion";
     }
 

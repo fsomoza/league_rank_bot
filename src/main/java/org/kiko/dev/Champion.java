@@ -7,7 +7,6 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 public class Champion {
     private String id;
     private String name;
-
     private String key;
 
     // Getters and Setters
