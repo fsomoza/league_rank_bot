@@ -1,7 +1,9 @@
-package org.kiko.dev;
+package org.kiko.dev.schedulers;
 
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Guild;
+import org.kiko.dev.ContextHolder;
+import org.kiko.dev.RankService;
 
 import java.time.LocalTime;
 import java.util.List;

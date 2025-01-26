@@ -8,7 +8,6 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.*;
-import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.JDA;
@@ -22,6 +21,10 @@ import okhttp3.Request;
 import okhttp3.Response;
 import org.bson.Document;
 import org.bson.conversions.Bson;
+import org.kiko.dev.adapters.MongoDbAdapter;
+import org.kiko.dev.adapters.RiotApiAdapter;
+import org.kiko.dev.dtos.*;
+import org.kiko.dev.timeline.TimeLineDto;
 
 import java.awt.*;
 import java.io.IOException;
@@ -83,7 +86,7 @@ public class RankService {
      *
      * @param name    The player's name.
      * @param tagline The player's tagline.
-     * @return The player's rank.
+     * @return A discord embed with the player's rank.
      * @throws Exception if invalid input or data retrieval fails.
      */
     public MessageEmbed getPlayerInformation(String name, String tagline) throws Exception {
@@ -98,7 +101,6 @@ public class RankService {
         AccountInfo accountInfo = riotApiAdapter.getPuuid(name, tagline);
         String encryptedSummonerId = riotApiAdapter.getEncryptedSummonerId(accountInfo.getPuuid());
 
-//        Map<String, String> ranks = riotApiAdapter.getQueueRanks(encryptedSummonerId);
 
          List<RiotApiAdapter.LeagueEntry> entries = riotApiAdapter.getQueueRanks(encryptedSummonerId);
 
@@ -108,7 +110,7 @@ public class RankService {
         //return null;
     }
 
-    public void actualizarInfo() throws Exception {
+    public void updatePlayersInfo() throws Exception {
         MongoDatabase database = mongoDbAdapter.getDatabase();
 
         for (String collectionName : database.listCollectionNames()) {
@@ -130,7 +132,7 @@ public class RankService {
                         getPlayerInformation(name, tagline);
 
                         // Optional: Add a small delay to avoid hitting rate limits
-                        //Thread.sleep(2000);
+                        Thread.sleep(1000);
 
                     } catch (Exception e) {
                         // Log the error but continue processing other documents
@@ -141,30 +143,6 @@ public class RankService {
         }
     }
 
-    public void cleanUpOldRecords() throws Exception {
-        MongoDatabase database = mongoDbAdapter.getDatabase();
-
-        // December 31, 2024 13:22:00 UTC
-        long cutoffTimestamp = 1735653129000L;
-
-        for (String collectionName : database.listCollectionNames()) {
-            if (collectionName.contains(SERVER_RANKS_COLLECTION)) {
-                ContextHolder.setGuildId(collectionName.split("-")[1]);
-                MongoCollection<Document> collection = database.getCollection(collectionName);
-
-                // Create a filter for documents with timestamp less than cutoff
-                Bson filter = Filters.lt("timestamp", cutoffTimestamp);
-
-                try {
-                    // Delete all documents matching the filter
-                    DeleteResult result = collection.deleteMany(filter);
-                    System.out.println("Deleted " + result.getDeletedCount() + " documents from collection: " + collectionName);
-                } catch (Exception e) {
-                    System.err.println("Error deleting documents from collection " + collectionName + ": " + e.getMessage());
-                }
-            }
-        }
-    }
 
     /**
      * Checks which players are currently in-game or have just finished a game.
@@ -172,6 +150,8 @@ public class RankService {
      * @throws Exception if data retrieval or messaging fails.
      */
     public void checkWhoInGame() throws Exception {
+
+        TimeLineDto timeLineDto = riotApiAdapter.getTimeLine("EUW1_7199642701");
         Guild guild = ContextHolder.getGuild();
         //TextChannel channel = guild.getTextChannelById(CHANNEL_ID);
         TextChannel textChannel = guild.getTextChannelsByName("game_scanner", true).get(0);
@@ -202,8 +182,19 @@ public class RankService {
             // Only check players not known to be in-game
             if (playersMap.containsKey(puuid)) {
                 CurrentGameInfo currentGameInfo = riotApiAdapter.checkIfPlayerIsInGame(puuid, playersMap);
+
+                //look for the game id in the games in progress collection
+                Document gameDoc = null;
+
+                if(currentGameInfo != null){
+                    gameDoc  = gamesInProgressCollection.find(
+                            new Document("id", currentGameInfo.getGameId())
+                                    .append("onGoing", false)
+                    ).first();
+                }
+
                 //TODO: QUICK HACK TO SKIP THE CUSTOM GAMES THAT DONT APPEAR IN THE MATCH HISTORY
-                if (currentGameInfo != null && getQueueType(currentGameInfo.getQueueType()) != "UNKNOWN") {
+                if (currentGameInfo != null && gameDoc == null && getQueueType(currentGameInfo.getQueueType()) != "UNKNOWN") {
                     handlePlayerInGame(currentGameInfo, textChannel, gamesInProgressCollection);
                 }
             }
@@ -216,7 +207,7 @@ public class RankService {
      * @throws IOException if network or parsing fails.
      */
     public void fetchAndStoreChampions() throws IOException {
-        String url = "https://ddragon.leagueoflegends.com/cdn/14.24.1/data/en_US/champion.json";
+        String url = "https://ddragon.leagueoflegends.com/cdn/15.2.1/data/en_US/champion.json";
         OkHttpClient client = new OkHttpClient();
 
         try (Response response = client.newCall(new Request.Builder().url(url).build()).execute()) {
@@ -254,18 +245,6 @@ public class RankService {
         }
     }
 
-    /**
-     * Retrieves a ranked list of players in a formatted code block.
-     *
-     * @return String representation of ranked players.
-     */
-    public String getRankedPlayerList() {
-        MongoDatabase database = mongoDbAdapter.getDatabase();
-        MongoCollection<Document> collection = database.getCollection(SERVER_RANKS_COLLECTION);
-
-        List<Document> players = collection.find().sort(Sorts.descending("elo")).into(new ArrayList<>());
-        return buildRankedPlayerTable(players);
-    }
 
     /**
      * Builds an embed with a ranked player leaderboard.
@@ -427,7 +406,7 @@ public class RankService {
         Set<String> playersInGame = new HashSet<>();
         //TODO try cath needs to be inside the loop, so if one of the api calls fails, it will not stop the whole thing
         // also maybe just log the error inside searchGameId() or checkCompletedGame() and continue
-        try (MongoCursor<Document> cursor = gamesInProgressCollection.find().iterator()) {
+        try (MongoCursor<Document> cursor = gamesInProgressCollection.find(new Document("onGoing", true)).iterator()) {
             while (cursor.hasNext()) {
                 Document gameDoc = cursor.next();
                 String gameId = gameDoc.getString("id");
@@ -446,14 +425,16 @@ public class RankService {
 
                     channel.sendMessageEmbeds(buildEmbedMessage(completedGameInfo, participantPuuids))
                             .setMessageReference(gameDoc.getString("messageId"))
-                            .queue(message -> {
-                                //TODO maybe implement a retry mechanism here in case the message is not sent
-                                // also need to think about possible race conditions and how to handle them
-                                gamesInProgressCollection.deleteOne(new Document("id", gameId));
-                            }, failure -> {
-                                // Handle any errors that occurred when trying to send the message
-                                failure.printStackTrace();
-                            });
+                            .complete();
+
+                    //TODO maybe implement a retry mechanism here in case the message is not sent
+                    // also need to think about possible race conditions and how to handle them
+
+                    // Update the game document to set onGoing to false
+                    gamesInProgressCollection.updateOne(
+                            new Document("id", gameId),
+                            new Document("$set", new Document("onGoing", false))
+                    );
 
                     //TODO update the player rank
 
@@ -487,7 +468,7 @@ public class RankService {
 
         List<String> participantIdsToExclude = new ArrayList<>();
 
-        gamesInProgressCollection.find().forEach(doc -> {
+        gamesInProgressCollection.find(new Document("onGoing", true)).forEach(doc -> {
             List<Document> participants = doc.getList("participants", Document.class);
             if (participants != null) {
                 participants.forEach(participant -> {
@@ -560,6 +541,7 @@ public class RankService {
                     Bson update = Updates.combine(
                             Updates.set("queueType", getQueueType(currentGameInfo.getQueueType())),
                             Updates.set("messageId", messageId),
+                            Updates.set("onGoing", true),
                             Updates.addEachToSet("participants", participantDocs)
                     );
 
@@ -923,11 +905,7 @@ public class RankService {
         // Show a main "Resultado" field. If you track the player's perspective in completedGameInfo.getWin():
         embed.addField("Resultado", registeredPlayerWon ? "🏆 VICTORIA" : "💀 DERROTA", false);
 
-        // Show the main scoreboard: e.g. "Blue Team - Defeat    22 - 17    Red Team - Win"
-//        String scoreboardTop = "Blue Team - " + blueTeamResult
-//                + "  " + blueKills + " - " + redKills + "  "
-//                + "Red Team - " + redTeamResult;
-//        embed.addField("Scoreboard", scoreboardTop, false);
+
 
         // Add the columns for side-by-side participant lines
         // 1) Blue Team column
@@ -1066,7 +1044,7 @@ public class RankService {
 
         MongoDatabase database = mongoDbAdapter.getDatabase();
         MongoCollection<Document> championsCollection = database.getCollection(CHAMPIONS_COLLECTION);
-        //get the emoji by champion id
+
 
 
         // Process participants and sort them into teams
@@ -1181,7 +1159,7 @@ public class RankService {
         tableBuilder.append("```");
         embed.setDescription(tableBuilder.toString());
         embed.setFooter("Data fetched from " + queueType + " ranks collection • Updated");
-        embed.setTimestamp(java.time.Instant.now());
+        embed.setTimestamp(Instant.now());
 
         return embed.build();
     }
@@ -1228,7 +1206,7 @@ public class RankService {
 
         // Add footer with timestamp
         embed.setFooter("Last updated");
-        embed.setTimestamp(java.time.Instant.now());
+        embed.setTimestamp(Instant.now());
 
         return embed.build();
     }

@@ -1,7 +1,9 @@
-package org.kiko.dev;
+package org.kiko.dev.schedulers;
 
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Guild;
+import org.kiko.dev.ContextHolder;
+import org.kiko.dev.RankService;
 
 import java.time.LocalTime;
 import java.util.List;
@@ -52,6 +54,7 @@ public class SharedTaskQueue {
         List<Guild> guilds = jda.getGuilds();
 
         for (Guild guild : guilds) {
+            //skip the guilds that are uses to contain the emojis
             if(guild.getName().contains("emoji-champions")) continue;
             try {
                 // Create a Runnable that processes this guild

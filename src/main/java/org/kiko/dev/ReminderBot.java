@@ -1,7 +1,6 @@
 package org.kiko.dev;
 
 
-import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.Guild;
@@ -14,17 +13,13 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.DefaultMemberPermissions;
 import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.interactions.commands.build.Commands;
-import net.dv8tion.jda.api.interactions.components.ActionRow;
-import net.dv8tion.jda.api.interactions.components.selections.StringSelectMenu;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.MemberCachePolicy;
 import net.dv8tion.jda.api.utils.cache.CacheFlag;
 import org.kiko.dev.commands.*;
+import org.kiko.dev.schedulers.SharedTaskQueue;
 
 import javax.security.auth.login.LoginException;
-import java.awt.*;
-import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
 
 public class ReminderBot extends ListenerAdapter {

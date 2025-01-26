@@ -1,4 +1,4 @@
-package org.kiko.dev;
+package org.kiko.dev.dtos;
 
 import java.util.List;
 
