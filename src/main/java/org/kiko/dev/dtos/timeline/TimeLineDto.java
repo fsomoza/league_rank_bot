@@ -1,6 +1,4 @@
-package org.kiko.dev.timeline;
-
-import java.util.List;
+package org.kiko.dev.dtos.timeline;
 
 public class TimeLineDto {
     private MetadataTimeLineDto metadata;

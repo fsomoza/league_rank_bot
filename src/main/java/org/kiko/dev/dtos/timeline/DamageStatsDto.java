@@ -1,4 +1,4 @@
-package org.kiko.dev.timeline;
+package org.kiko.dev.dtos.timeline;
 
 public class DamageStatsDto {
     // Define fields based on your requirements

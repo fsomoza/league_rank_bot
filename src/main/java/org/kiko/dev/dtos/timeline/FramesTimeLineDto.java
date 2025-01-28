@@ -1,4 +1,4 @@
-package org.kiko.dev.timeline;
+package org.kiko.dev.dtos.timeline;
 
 import java.util.List;
 import java.util.Map;

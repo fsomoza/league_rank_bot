@@ -7,7 +7,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
 import org.kiko.dev.*;
 import org.kiko.dev.dtos.*;
-import org.kiko.dev.timeline.TimeLineDto;
+import org.kiko.dev.dtos.timeline.TimeLineDto;
 
 import java.lang.reflect.Type;
 import java.net.HttpURLConnection;
@@ -221,6 +221,7 @@ public class RiotApiAdapter {
                         participantObj.setTeamId(participant.get("teamId").getAsLong());
                         if (playersMap.containsKey(participantPuuid)) {
                             participantObj.setRegisteredPlayer(true);
+                            //when we find a player in the game, we remove him from the map so we dont iterate over him again
                             playersMap.remove(participantPuuid);
                         }
                         participants.add(participantObj);
@@ -244,7 +245,7 @@ public class RiotApiAdapter {
         }
     }
 
-    public CompletedGameInfo checkCompletedGame(String gameId, Set<String> participantPuuids) throws Exception {
+    public CompletedGameInfo checkCompletedGame(String gameId) throws Exception {
 
 
         //TODO: need to cover casuistic where players are in opposite teams
@@ -259,7 +260,6 @@ public class RiotApiAdapter {
             List<CompletedGameInfoParticipant> completedGameInfoParticipants = new ArrayList<>();
             completedGameInfo.setParticipants(completedGameInfoParticipants);
 
-            Boolean win = null;
 
             // Encode the gameId to ensure it's safe for use in a URL
             String encodedGameId = URLEncoder.encode(gameId, StandardCharsets.UTF_8);
@@ -286,7 +286,6 @@ public class RiotApiAdapter {
                 JsonArray participants = info.get("participants").getAsJsonArray();
                 for (JsonElement participantElement : participants) {
                     JsonObject participant = participantElement.getAsJsonObject();
-                    String participantPuuid = participant.get("puuid").getAsString();
 
 
                         JsonObject player = participant.getAsJsonObject();
@@ -349,14 +348,13 @@ public class RiotApiAdapter {
 
                 // Iterate through each match ID in the array
                 for (JsonElement matchElement : matches) {
+
                     String matchId = matchElement.getAsString();
                     if (matchId.equalsIgnoreCase("EUW1_" + gameId)) {
                         return matchId;
-                    }else{
-                        //TODO: maybe delete the game from the db
-                        return null;
                     }
                 }
+                return null;
             } else if (response.statusCode() == 429) { // Rate limit hit
                 continue; // Will retry after waiting
 

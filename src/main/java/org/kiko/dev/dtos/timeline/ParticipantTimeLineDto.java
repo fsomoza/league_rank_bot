@@ -1,4 +1,4 @@
-package org.kiko.dev.timeline;
+package org.kiko.dev.dtos.timeline;
 
 public class ParticipantTimeLineDto {
     private int participantId;
