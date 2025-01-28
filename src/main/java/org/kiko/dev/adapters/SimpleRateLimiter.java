@@ -1,4 +1,4 @@
-package org.kiko.dev;
+package org.kiko.dev.adapters;
 
 import java.net.http.HttpResponse;
 import java.time.Duration;

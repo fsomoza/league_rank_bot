@@ -1,5 +1,5 @@
 // File: org/kiko/dev/model/Champion.java
-package org.kiko.dev;
+package org.kiko.dev.dtos;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 

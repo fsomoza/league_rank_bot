@@ -1,10 +1,13 @@
-package org.kiko.dev;
+package org.kiko.dev.adapters;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
+import org.kiko.dev.*;
+import org.kiko.dev.dtos.*;
+import org.kiko.dev.dtos.timeline.TimeLineDto;
 
 import java.lang.reflect.Type;
 import java.net.HttpURLConnection;
@@ -41,14 +44,6 @@ public class RiotApiAdapter {
         this.gson = new Gson();
        RIOT_API_KEY = ConfigurationHolder.getProperty("riot.api.key");
 
-        // Initialize rate limiter with Riot API limits
-//        this.rateLimiter = new RateLimiter();
-//
-//        // Add a custom limit for an endpoint
-//        rateLimiter.addLimit("riotDynamic",
-//                new RateLimiter.TokenBucket(20, 1, 20),    // 20 requests per second
-//                new RateLimiter.TokenBucket(100, 120, 100) // 100 requests per 2 minutes
-//        );
         this.simpleRateLimiter = new SimpleRateLimiter();
     }
 
@@ -100,6 +95,44 @@ public class RiotApiAdapter {
             }
         }
     }
+
+    public TimeLineDto getTimeLine(String gameId) throws Exception {
+
+        String endpoint = String.format("/lol/match/v5/matches/%s/timeline",
+                URLEncoder.encode(gameId, StandardCharsets.UTF_8));
+
+        while (true) {
+            if (!simpleRateLimiter.canProceed(APP_LIMIT)) {
+                simpleRateLimiter.awaitRateLimit(APP_LIMIT);
+                continue;
+            }
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(BASE_URL + endpoint))
+                    .header("X-Riot-Token", RIOT_API_KEY)
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = client.send(request,
+                    HttpResponse.BodyHandlers.ofString());
+
+            // Update rate limit based on response
+            simpleRateLimiter.updateRateLimit(APP_LIMIT, response);
+
+            if (response.statusCode() == HttpURLConnection.HTTP_OK) {
+                return gson.fromJson(response.body(), TimeLineDto.class);
+            } else if (response.statusCode() == 429) { // Rate limit hit
+                HttpHeaders headers = response.headers();
+                System.out.println("Rate limit exceeded in getTimeLine");
+                System.out.println("Retry after " + headers.map().get("retry-after"));
+                continue; // Will retry after waiting
+            } else {
+                handleErrorResponse(response);
+                return null;
+            }
+        }
+    }
+
 
     public AccountInfo getPuuid(String name, String tagLine) throws Exception {
         String endpoint = String.format("/riot/account/v1/accounts/by-riot-id/%s/%s",
@@ -188,6 +221,7 @@ public class RiotApiAdapter {
                         participantObj.setTeamId(participant.get("teamId").getAsLong());
                         if (playersMap.containsKey(participantPuuid)) {
                             participantObj.setRegisteredPlayer(true);
+                            //when we find a player in the game, we remove him from the map so we dont iterate over him again
                             playersMap.remove(participantPuuid);
                         }
                         participants.add(participantObj);
@@ -211,7 +245,7 @@ public class RiotApiAdapter {
         }
     }
 
-    public CompletedGameInfo checkCompletedGame(String gameId, Set<String> participantPuuids) throws Exception {
+    public CompletedGameInfo checkCompletedGame(String gameId) throws Exception {
 
 
         //TODO: need to cover casuistic where players are in opposite teams
@@ -226,7 +260,6 @@ public class RiotApiAdapter {
             List<CompletedGameInfoParticipant> completedGameInfoParticipants = new ArrayList<>();
             completedGameInfo.setParticipants(completedGameInfoParticipants);
 
-            Boolean win = null;
 
             // Encode the gameId to ensure it's safe for use in a URL
             String encodedGameId = URLEncoder.encode(gameId, StandardCharsets.UTF_8);
@@ -253,7 +286,6 @@ public class RiotApiAdapter {
                 JsonArray participants = info.get("participants").getAsJsonArray();
                 for (JsonElement participantElement : participants) {
                     JsonObject participant = participantElement.getAsJsonObject();
-                    String participantPuuid = participant.get("puuid").getAsString();
 
 
                         JsonObject player = participant.getAsJsonObject();
@@ -316,14 +348,13 @@ public class RiotApiAdapter {
 
                 // Iterate through each match ID in the array
                 for (JsonElement matchElement : matches) {
+
                     String matchId = matchElement.getAsString();
                     if (matchId.equalsIgnoreCase("EUW1_" + gameId)) {
                         return matchId;
-                    }else{
-                        //TODO: maybe delete the game from the db
-                        return null;
                     }
                 }
+                return null;
             } else if (response.statusCode() == 429) { // Rate limit hit
                 continue; // Will retry after waiting
 
@@ -404,15 +435,6 @@ public class RiotApiAdapter {
                         .filter(entry -> "RANKED_SOLO_5x5".equals(entry.getQueueType()))
                         .findFirst();
 
-//                if (soloQueue.isPresent()) {
-//                    LeagueEntry entry = soloQueue.get();
-//                    return String.format("%s %s %d LP",
-//                            entry.getTier(),
-//                            entry.getRank(),
-//                            entry.getLeaguePoints());
-//                } else {
-//                    return "JUEGA RANKEDS";
-//                }
 
                 return soloQueue;
             } else if (response.statusCode() == 429) { // Rate limit hit
@@ -458,15 +480,6 @@ public class RiotApiAdapter {
                         .filter(entry -> "RANKED_FLEX_SR".equals(entry.getQueueType()))
                         .findFirst();
 
-//                if (flexQueue.isPresent()) {
-//                    LeagueEntry entry = flexQueue.get();
-//                    return String.format("%s %s %d LP",
-//                            entry.getTier(),
-//                            entry.getRank(),
-//                            entry.getLeaguePoints());
-//                } else {
-//                    return "JUEGA RANKEDS";
-//                }
                 return flexQueue;
             }else if (response.statusCode() == 429) { // Rate limit hit
                 HttpHeaders headers = response.headers();
@@ -512,18 +525,6 @@ public class RiotApiAdapter {
                 }.getType();
                 List<LeagueEntry> entries = gson.fromJson(response.body(), listType);
 
-//                entries.stream()
-//                        .filter(entry -> entry.getQueueType().equals("RANKED_SOLO_5x5") ||
-//                                entry.getQueueType().equals("RANKED_FLEX_SR"))
-//                        .forEach(entry -> ranks.put(
-//                                entry.getQueueType(),
-//                                String.format("%s %s %d LP",
-//                                        entry.getTier(),
-//                                        entry.getRank(),
-//                                        entry.getLeaguePoints())
-//                        ));
-//
-//                return ranks;
 
                 return entries;
             }else if (response.statusCode() == 429) { // Rate limit hit

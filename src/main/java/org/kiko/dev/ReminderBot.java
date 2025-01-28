@@ -1,7 +1,6 @@
 package org.kiko.dev;
 
 
-import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.Guild;
@@ -14,24 +13,18 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.DefaultMemberPermissions;
 import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.interactions.commands.build.Commands;
-import net.dv8tion.jda.api.interactions.components.ActionRow;
-import net.dv8tion.jda.api.interactions.components.selections.StringSelectMenu;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.MemberCachePolicy;
 import net.dv8tion.jda.api.utils.cache.CacheFlag;
 import org.kiko.dev.commands.*;
+import org.kiko.dev.scheduler.SharedTaskQueue;
 
-import javax.security.auth.login.LoginException;
-import java.awt.*;
-import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
 
 public class ReminderBot extends ListenerAdapter {
 
     public final RankService rankService;
     private final CommandManager commandManager;
-
     private static final String PREFIX = "!rank";
 
 
@@ -44,7 +37,7 @@ public class ReminderBot extends ListenerAdapter {
     }
 
 
-    public static void main(String[] args) throws LoginException, InterruptedException {
+    public static void main(String[] args) throws InterruptedException {
 
         JDA jda = JDABuilder.createDefault(ConfigurationHolder.getProperty("discord.bot.token"))
                 .setEventManager(new AsyncEventManager())
@@ -91,7 +84,7 @@ public class ReminderBot extends ListenerAdapter {
 //
 //        ).queue();
 
-        SharedTaskQueue taskQueue = new SharedTaskQueue(reminderBot.rankService, jda);
+        SharedTaskQueue taskQueue = new SharedTaskQueue(jda);
 
         // Start producing tasks every minute
         taskQueue.startScheduledTask();
@@ -157,6 +150,8 @@ public class ReminderBot extends ListenerAdapter {
                 event.getHook().editOriginalEmbeds(updatedEmbed).queue();
             } catch (Exception e) {
                 event.getHook().sendMessage("Error updating rankings: " + e.getMessage()).queue();
+            }finally {
+                ContextHolder.clear();
             }
         }
     }

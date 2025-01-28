@@ -1,7 +1,8 @@
-package org.kiko.dev;
+package org.kiko.dev.scheduler;
 
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Guild;
+import org.kiko.dev.ContextHolder;
 
 import java.time.LocalTime;
 import java.util.List;
@@ -19,14 +20,19 @@ public class SharedTaskQueue {
 
     // Fixed-size pool of workers that will process tasks from the queue
     // - If you want 5 concurrent tasks at most, set pool size to 5
+
+    //as now we are using a single thread for the game scanner because with just one thread we
+    // already are hitting the rate limit of the api, so it doesnt makes sense to be hitting it
+    // with multiple threads
     private final ExecutorService workerPool = Executors.newFixedThreadPool(1);
 
-    private final RankService rankService;
+
+    private final GameScanner gameScanner;
     private final JDA jda;
 
-    public SharedTaskQueue(RankService rankService, JDA jda) {
-        this.rankService = rankService;
+    public SharedTaskQueue(JDA jda) {
         this.jda = jda;
+        this.gameScanner = new GameScanner();
 
         // Start workers in the background
         startWorkerThreads();
@@ -52,6 +58,7 @@ public class SharedTaskQueue {
         List<Guild> guilds = jda.getGuilds();
 
         for (Guild guild : guilds) {
+            //skip the guilds that are uses to contain the emojis
             if(guild.getName().contains("emoji-champions")) continue;
             try {
                 // Create a Runnable that processes this guild
@@ -85,11 +92,12 @@ public class SharedTaskQueue {
                 ContextHolder.setGuildId(guild.getId());
 
                 // The heavy logic
-                rankService.checkWhoInGame();
+                gameScanner.checkWhoInGame();
 
             } catch (Exception e) {
                 System.err.println("Error during guild task: " + e.getMessage());
             } finally {
+                ContextHolder.clear();
                 long endTime = System.currentTimeMillis(); // Stop timing
                 long duration = endTime - startTime;
                 System.out.println("Completed guild " + guild.getName() + " within " + duration + " ms.");

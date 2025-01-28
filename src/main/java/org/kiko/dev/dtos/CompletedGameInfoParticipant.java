@@ -1,4 +1,4 @@
-package org.kiko.dev;
+package org.kiko.dev.dtos;
 
 public class CompletedGameInfoParticipant {
     private String champion;

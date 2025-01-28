@@ -1,6 +1,7 @@
 package org.kiko.dev.commands;
 
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
+import org.kiko.dev.ContextHolder;
 import org.kiko.dev.RankService;
 
 public class UpdateCommand implements Command {
@@ -37,10 +38,12 @@ public class UpdateCommand implements Command {
 
         event.deferReply().queue(); // For longer operations
         try {
-            rankService.actualizarInfo();
+            rankService.updatePlayersInfo();
             event.getHook().sendMessage("Data update completed successfully!").setEphemeral(true).queue();
         } catch (Exception e) {
             event.getHook().sendMessage("Error updating data: " + e.getMessage()).setEphemeral(true).queue();
+        }finally {
+            ContextHolder.clear();
         }
     }
 }
