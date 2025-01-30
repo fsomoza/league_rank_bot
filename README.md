@@ -20,15 +20,42 @@ This project includes:
 - **Main Bot Class (`LeagueRankBotMain`)**: The entry point of the bot that initializes and runs the bot.
 - **Scheduler/Queue (`SharedTaskQueue`)**: Handles scanning tasks at regular intervals.
 - **Match Scanner (`GameScanner`)**: Scans for ongoing and completed matches for registered players.
-- **Commands**: 
-  - `RankCommand`: Displays the rank of a registered player.
-  - `AddCommand`: Adds a player to the bot's tracking system.
-  - `DeleteCommand`: Removes a player from the bot's tracking system.
 - **Riot API Adapter (`RiotApiAdapter`)**: Handles calls to the Riot API to fetch player data and match details.
 - **MongoDB Adapter (`MongoDbAdapter`)**: Handles database interactions for storing player and match data.
 - **Configuration Holders**:
   - `ConfigurationHolder`: Stores environment data like bot token, API keys, and other configurations.
   - `ContextHolder`: Stores guild-specific information like guild IDs and channel IDs.
+## Commands
+
+- **RankCommand**  
+  **Slash Command**: `/rank`  
+  **Description**: Fetches and displays a registered player's current rank.
+
+- **AddCommand**  
+  **Slash Command**: `/add`  
+  **Description**: Adds a new player to the bot's tracking system.
+
+- **DeleteCommand**  
+  **Slash Command**: `/delete`  
+  **Description**: Removes a player from the bot's tracking system.
+
+- **HelpCommand**  
+  **Slash Command**: `/help`  
+  **Description**: Provides assistance and information on how to use the bot's commands.
+
+- **RankingCommand**  
+  **Slash Command**: `/ranking`  
+  **Description**: Shows a ranked list of all tracked players in the server.
+
+- **BroadcastCommand**  
+  **Slash Command**: `/broadcast`  
+  **Description**: Allows an admin to send a message to all servers (restricted to a specific guild ID in code).
+
+- **UpdateCommand**  
+  **Slash Command**: `/update`  
+  **Description**: Triggers an update procedure for the bot (restricted to a specific guild ID in code).
+
+
 
 ## Requirements
 
