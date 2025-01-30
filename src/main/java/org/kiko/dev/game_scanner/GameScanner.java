@@ -1,4 +1,4 @@
-package org.kiko.dev.scheduler;
+package org.kiko.dev.game_scanner;
 
 import com.mongodb.MongoException;
 import com.mongodb.client.MongoCollection;
@@ -8,7 +8,6 @@ import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.model.Updates;
 import com.mongodb.client.result.UpdateResult;
-import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
@@ -19,15 +18,11 @@ import org.kiko.dev.ContextHolder;
 import org.kiko.dev.adapters.MongoDbAdapter;
 import org.kiko.dev.adapters.RiotApiAdapter;
 import org.kiko.dev.dtos.CompletedGameInfo;
-import org.kiko.dev.dtos.CompletedGameInfoParticipant;
 import org.kiko.dev.dtos.CurrentGameInfo;
 import org.kiko.dev.dtos.Participant;
 
-import java.awt.*;
-import java.time.Instant;
 import java.util.*;
 import java.util.List;
-import java.util.stream.Collectors;
 
 public class GameScanner {
 
@@ -148,7 +143,14 @@ public class GameScanner {
                     CompletedGameInfo completedGameInfo = riotApiAdapter.checkCompletedGame(foundGameId);
                     completedGameInfo.setQueueType(gameDoc.getString("queueType"));
 
-                    channel.sendMessageEmbeds(buildEmbedMessage(completedGameInfo, participantPuuids))
+                    // Use the new builder method
+                    MessageEmbed embed = GameMessageBuilder.buildCompletedGameEmbed(
+                            completedGameInfo,
+                            participantPuuids,
+                            champsCollection
+                    );
+
+                    channel.sendMessageEmbeds(embed)
                             .setMessageReference(gameDoc.getString("messageId"))
                             .complete();
 
@@ -202,7 +204,10 @@ public class GameScanner {
 
         enrichCurrentGameInfo(currentGameInfo);
 
-        channel.sendMessageEmbeds(buildOngoingGameEmbed(currentGameInfo))
+        // Use the new builder method for the ongoing match
+        MessageEmbed embed = GameMessageBuilder.buildOngoingGameEmbed(currentGameInfo, champsCollection);
+
+        channel.sendMessageEmbeds(embed)
                 .queue(message -> {
                     //TODO maybe implement a retry mechanism here in case the message is not sent
                     // also need to think about possible race conditions and how to handle them
@@ -463,279 +468,4 @@ public class GameScanner {
 
         return currentGameInfo;
     }
-
-    private MessageEmbed buildEmbedMessage(CompletedGameInfo completedGameInfo, Set<String> participantPuuids) {
-
-        MongoCollection<Document> championsCollection = this.champsCollection;
-
-
-
-        completedGameInfo.getParticipants().stream().forEach(
-                participant -> participant.setRegisteredPlayer(participantPuuids.contains(participant.getPuuid()))
-        );
-
-
-        // Find the first registered player and determine if they won
-        boolean registeredPlayerWon = completedGameInfo.getParticipants().stream()
-                .filter(participant -> participant.isRegisteredPlayer())
-                .findFirst()
-                .map(participant -> participant.isWin())
-                .orElse(false);
-
-        // Separate participants by team
-        List<CompletedGameInfoParticipant> blueTeam = completedGameInfo.getParticipants().stream()
-                .filter(p -> p.getTeamId() == 100)
-                .collect(Collectors.toList());
-        List<CompletedGameInfoParticipant> redTeam = completedGameInfo.getParticipants().stream()
-                .filter(p -> p.getTeamId() == 200)
-                .collect(Collectors.toList());
-
-        // Determine which side won
-        boolean blueTeamWin = blueTeam.stream().anyMatch(CompletedGameInfoParticipant::isWin);
-        boolean redTeamWin  = redTeam.stream().anyMatch(CompletedGameInfoParticipant::isWin);
-
-        String blueTeamResult = blueTeamWin ? "Win" : "Defeat";
-        String redTeamResult  = redTeamWin  ? "Win" : "Defeat";
-
-        // Sum kills for scoreboard: e.g., "22 - 17"
-        int[] blueTotals = sumTeamKda(blueTeam);
-        int[] redTotals  = sumTeamKda(redTeam);
-
-        int blueKills = blueTotals[0];
-        int redKills  = redTotals[0];
-
-        // Build column fields for the embed
-        //  -- Column 1: Blue Summoner Names
-        //  -- Column 2: KDA strings (blue vs red)
-        //  -- Column 3: Red Summoner Names
-
-        StringBuilder blueTeamNames = new StringBuilder();
-        StringBuilder kdaColumn     = new StringBuilder();
-        StringBuilder redTeamNames  = new StringBuilder();
-
-        // We'll iterate over the maximum size of either team
-        int maxSize = Math.max(blueTeam.size(), redTeam.size());
-        for (int i = 0; i < maxSize; i++) {
-            CompletedGameInfoParticipant bp = (i < blueTeam.size()) ? blueTeam.get(i) : null;
-            CompletedGameInfoParticipant rp = (i < redTeam.size()) ? redTeam.get(i) : null;
-
-            // --- Blue side
-            if (bp != null) {
-                Document champion = championsCollection.find(new Document("key", bp.getChampionId())).first();
-                blueTeamNames.append("<:"+ champion.getString("id") +":"+ champion.getString("emojiId") +"> | ");
-                if (bp.isRegisteredPlayer()) {
-                    blueTeamNames.append("__**").append(bp.getPlayerName()).append("**__");
-                } else {
-                    blueTeamNames.append(bp.getPlayerName());
-                }
-                blueTeamNames.append("\n");
-            } else {
-                blueTeamNames.append("\n"); // Keep line alignment if teams are uneven
-            }
-
-            // --- Middle KDA (combine both sides into one line, or just do Blue KDA + " | " + Red KDA)
-            String blueKda = (bp != null) ? bp.getKda() : "";
-            String redKda  = (rp != null) ? rp.getKda() : "";
-            // Example: "5/8/3   12/3/12"
-            kdaColumn.append(String.format("%-7s ⚔️ %-7s", blueKda, redKda)).append("\n");
-
-            // --- Red side
-            if (rp != null) {
-                Document champion = championsCollection.find(new Document("key", rp.getChampionId())).first();
-                redTeamNames.append("<:"+ champion.getString("id") +":"+ champion.getString("emojiId") +"> | ");
-                if (rp.isRegisteredPlayer()) {
-                    redTeamNames.append("__**").append(rp.getPlayerName()).append("**__");
-                } else {
-                    redTeamNames.append(rp.getPlayerName());
-                }
-                redTeamNames.append("\n");
-            } else {
-                redTeamNames.append("\n");
-            }
-        }
-
-        // Now build the embed
-        EmbedBuilder embed = new EmbedBuilder();
-
-
-        List<CompletedGameInfoParticipant> participants = completedGameInfo.getParticipants();
-        String map = "Summoner's Rift";
-        String queueType = completedGameInfo.getQueueType();
-        if(queueType.contains("ARAM")){
-            map = "Bridge of progress";
-        }
-
-        // Build title with registered players
-        StringBuilder titleBuilder = new StringBuilder("🎉 Partida Finalizada! " + completedGameInfo.getQueueType() + " | " + map
-                + " | " + tranformSecondsToMMSS(completedGameInfo.getGameDuration()) + " | ");
-        List<String> registeredPlayers = participants.stream()
-                .filter(CompletedGameInfoParticipant::isRegisteredPlayer)
-                .map(p -> "**" + p.getPlayerName() + "**")
-                .collect(Collectors.toList());
-
-        if (!registeredPlayers.isEmpty()) {
-            titleBuilder.append("Players: ").append(String.join(", ", registeredPlayers));
-        }
-
-
-        // Use whichever color logic you prefer. If you have "completedGameInfo.getWin()"
-        // to reflect the "player's team" result, you can do that. For demonstration:
-        embed.setColor(registeredPlayerWon ? Color.GREEN : Color.RED);
-
-        // Title + description
-        embed.setTitle(titleBuilder.toString());
-
-        // Show a main "Resultado" field. If you track the player's perspective in completedGameInfo.getWin():
-        embed.addField("Resultado", registeredPlayerWon ? "🏆 VICTORIA" : "💀 DERROTA", false);
-
-
-
-        // Add the columns for side-by-side participant lines
-        // 1) Blue Team column
-        embed.addField("Blue Team - " + blueTeamResult, blueTeamNames.toString(), true);
-
-        // 2) KDA column
-        embed.addField("KDA", kdaColumn.toString(), true);
-
-        // 3) Red Team column
-        embed.addField("Red Team - " + redTeamResult, redTeamNames.toString(), true);
-
-        // Footer with match duration, or anything else
-        embed.setTimestamp(Instant.now());
-
-        return embed.build();
-    }
-
-    private MessageEmbed buildOngoingGameEmbed(CurrentGameInfo currentGameInfo) {
-        List<Participant> participants = currentGameInfo.getParticipants();
-        String map = "Summoner's Rift";
-        String queueType = getQueueType(currentGameInfo.getQueueType());
-        if(queueType.contains("ARAM")){
-            map = "Bridge of progress";
-        }
-
-        // Build title with registered players
-        StringBuilder titleBuilder = new StringBuilder("\uD83D\uDEA8 Partida en curso detectada: " + getQueueType(currentGameInfo.getQueueType()) + " | " + map + " | ");
-        List<String> registeredPlayers = participants.stream()
-                .filter(Participant::isRegisteredPlayer)
-                .map(p -> "**" + p.getPlayerName() + "**")
-                .collect(Collectors.toList());
-
-        if (!registeredPlayers.isEmpty()) {
-            titleBuilder.append("Players: ").append(String.join(", ", registeredPlayers));
-        }
-
-        EmbedBuilder embed = new EmbedBuilder();
-        embed.setTitle(titleBuilder.toString());
-        embed.setColor(0x1F8B4C);
-
-        // Create field for Blue Team
-        StringBuilder blueTeamField = new StringBuilder();
-        StringBuilder blueTeamRankField = new StringBuilder();
-        StringBuilder blueTeamStatsField = new StringBuilder();
-
-        // Create field for Red Team
-        StringBuilder redTeamField = new StringBuilder();
-        StringBuilder redTeamRankField = new StringBuilder();
-        StringBuilder redTeamStatsField = new StringBuilder();
-
-        MongoCollection<Document> championsCollection = this.champsCollection;
-
-
-
-        // Process participants and sort them into teams
-        for (Participant participant : participants) {
-            StringBuilder nameField = participant.getTeamId() == 100 ? blueTeamField : redTeamField;
-            StringBuilder rankField = participant.getTeamId() == 100 ? blueTeamRankField : redTeamRankField;
-            StringBuilder statsField = participant.getTeamId() == 100 ? blueTeamStatsField : redTeamStatsField;
-
-            // Add player name (with champion icon placeholder)
-
-            Document champion = championsCollection.find(new Document("key", participant.getChampionId())).first();
-//            nameField.append("🦸‍♂️ | ");
-            //nameField.append("<:Aatrox:1323017539508240464> | ");
-            nameField.append("<:"+ champion.getString("id") +":"+ champion.getString("emojiId") +"> | ");
-            if (participant.isRegisteredPlayer()) {
-                nameField.append("__**").append(participant.getPlayerName()).append("**__");
-            } else {
-                nameField.append(participant.getPlayerName());
-            }
-            nameField.append("\n");
-
-            // Add rank information (without emoji), ensure empty ranks still take a line
-            String rank = participant.getRank();
-            rankField.append(rank != null && !rank.isEmpty() ? rank : "\u200B").append("\n");
-
-            // Add winrate information, ensure empty winrates still take a line
-            String winrate = formatWinrate(participant.getWins(), participant.getLosses());
-            statsField.append(winrate != null && !winrate.isEmpty() ? winrate : "\u200B").append("\n");
-        }
-
-        String rankType = "SOLO/DUO";
-        if(getQueueType(currentGameInfo.getQueueType()).equals("RANKED_FLEX")){
-            rankType = "FLEX";
-        }
-        // Add fields to embed
-        embed.addField("Blue Team", blueTeamField.toString(), true);
-        embed.addField(  rankType+ " Rank", blueTeamRankField.toString(), true);
-        embed.addField("WR", blueTeamStatsField.toString(), true);
-
-        embed.addField("\u200B", "\u200B", false); // Empty field for spacing
-
-        embed.addField("Red Team", redTeamField.toString(), true);
-        embed.addField(rankType+ " Rank", redTeamRankField.toString(), true);
-        embed.addField("WR", redTeamStatsField.toString(), true);
-
-        return embed.build();
-    }
-
-
-    /**
-     * Helper to sum Kills/Deaths/Assists from the participants' KDA strings.
-     * Returns an array [kills, deaths, assists].
-     */
-    private int[] sumTeamKda(List<CompletedGameInfoParticipant> teamParticipants) {
-        int kills = 0, deaths = 0, assists = 0;
-        for (CompletedGameInfoParticipant p : teamParticipants) {
-            int[] kdaParts = parseKDA(p.getKda());
-            kills   += kdaParts[0];
-            deaths  += kdaParts[1];
-            assists += kdaParts[2];
-        }
-        return new int[] { kills, deaths, assists };
-    }
-
-    /**
-     * Parses a string like "5/8/3" into int[] {5, 8, 3}.
-     */
-    private int[] parseKDA(String kda) {
-        if (kda == null || !kda.contains("/")) {
-            return new int[] { 0, 0, 0 };
-        }
-        try {
-            String[] parts = kda.split("/");
-            int k = Integer.parseInt(parts[0]);
-            int d = Integer.parseInt(parts[1]);
-            int a = Integer.parseInt(parts[2]);
-            return new int[] { k, d, a };
-        } catch (NumberFormatException e) {
-            return new int[] { 0, 0, 0 };
-        }
-    }
-
-    // Helper method to format winrate only
-    private String formatWinrate(int wins, int losses) {
-        return String.format("%.1f%% (%dW/%dL)",
-                ((double) wins / (wins + losses)) * 100,
-                wins,
-                losses);
-    }
-
-    private String tranformSecondsToMMSS(long seconds) {
-        long minutes = seconds / 60;
-        long secondsLeft = seconds % 60;
-        return String.format("%02d:%02d", minutes, secondsLeft);
-    }
-
-
 }

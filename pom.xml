@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>org.kiko.dev</groupId>
-    <artifactId>lol.rank.bot</artifactId>
+    <artifactId>bot</artifactId>
     <version>1.0-SNAPSHOT</version>
 
 <!--    <properties>-->
@@ -84,7 +84,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>org.kiko.dev.ReminderBot</mainClass>
+                            <mainClass>org.kiko.dev.LeagueRankBotMain</mainClass>
                         </manifest>
                     </archive>
                     <descriptorRefs>
