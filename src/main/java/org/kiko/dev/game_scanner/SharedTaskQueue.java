@@ -1,4 +1,4 @@
-package org.kiko.dev.scheduler;
+package org.kiko.dev.game_scanner;
 
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Guild;
@@ -21,9 +21,9 @@ public class SharedTaskQueue {
     // Fixed-size pool of workers that will process tasks from the queue
     // - If you want 5 concurrent tasks at most, set pool size to 5
 
-    //as now we are using a single thread for the game scanner because with just one thread we
-    // already are hitting the rate limit of the api, so it doesnt makes sense to be hitting it
-    // with multiple threads
+    //as now I am using a single thread for the game scanner because with just one thread I
+    // already am hitting the rate limit ( personal level api key -> 100 requests every 2 minutes) of the riot api,
+    // so it doesnt makes sense to be hitting it with multiple threads
     private final ExecutorService workerPool = Executors.newFixedThreadPool(1);
 
 

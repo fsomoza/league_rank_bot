@@ -101,7 +101,6 @@ public class RankService {
 
          savePlayerInformation(accountInfo.getPuuid(), accountInfo.getGameName(), accountInfo.getTagLine(), entries, encryptedSummonerId);
         return buildPlayerRankEmbed(accountInfo, entries);
-        //return null;
     }
 
     public void updatePlayersInfo() throws Exception {

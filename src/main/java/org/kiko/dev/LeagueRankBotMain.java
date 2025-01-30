@@ -17,11 +17,11 @@ import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.MemberCachePolicy;
 import net.dv8tion.jda.api.utils.cache.CacheFlag;
 import org.kiko.dev.commands.*;
-import org.kiko.dev.scheduler.SharedTaskQueue;
+import org.kiko.dev.game_scanner.SharedTaskQueue;
 
 import java.util.List;
 
-public class ReminderBot extends ListenerAdapter {
+public class LeagueRankBotMain extends ListenerAdapter {
 
     public final RankService rankService;
     private final CommandManager commandManager;
@@ -30,7 +30,7 @@ public class ReminderBot extends ListenerAdapter {
 
     private JDA jda;  // Instance variable to hold the JDA object
 
-    public ReminderBot(JDA jda, CommandManager commandManager) {
+    public LeagueRankBotMain(JDA jda, CommandManager commandManager) {
         this.jda = jda;
         this.rankService = new RankService(jda);
         this.commandManager = commandManager;
@@ -53,24 +53,24 @@ public class ReminderBot extends ListenerAdapter {
         // Initialize CommandManager
         CommandManager commandManager = new CommandManager();
 
-        // Create an instance of ReminderBot with the JDA object and CommandManager
-        ReminderBot reminderBot = new ReminderBot(jda, commandManager);
+        // Create an instance of LeagueRankBotMain with the JDA object and CommandManager
+        LeagueRankBotMain leagueRankBotMain = new LeagueRankBotMain(jda, commandManager);
 
         // Register commands
-        reminderBot.registerCommandsForAllGuilds(jda);
+        leagueRankBotMain.registerCommandsForAllGuilds(jda);
 
         // Register individual command handlers
-        commandManager.registerCommand(new RankCommand(reminderBot.rankService));
-        commandManager.registerCommand(new AddCommand(reminderBot.rankService));
-        commandManager.registerCommand(new DeleteCommand(reminderBot.rankService));
+        commandManager.registerCommand(new RankCommand(leagueRankBotMain.rankService));
+        commandManager.registerCommand(new AddCommand(leagueRankBotMain.rankService));
+        commandManager.registerCommand(new DeleteCommand(leagueRankBotMain.rankService));
         commandManager.registerCommand(new HelpCommand());
-        commandManager.registerCommand(new RankingCommand(reminderBot.rankService));
-        commandManager.registerCommand(new BroadcastCommand(reminderBot.rankService, jda));
-        commandManager.registerCommand(new UpdateCommand(reminderBot.rankService));
+        commandManager.registerCommand(new RankingCommand(leagueRankBotMain.rankService));
+        commandManager.registerCommand(new BroadcastCommand(leagueRankBotMain.rankService, jda));
+        commandManager.registerCommand(new UpdateCommand(leagueRankBotMain.rankService));
 
 
         // Add the event listener
-        jda.addEventListener(reminderBot);
+        jda.addEventListener(leagueRankBotMain);
 
 
         // Register slash commands globally
