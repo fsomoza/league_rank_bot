@@ -1,6 +1,6 @@
 # LeagueRankBot - README
 
-Welcome to the **LeagueRankBot** project. This bot is built using the Java Discord API (JDA) and interacts with Riot Games’ League of Legends APIs to track and report player ranks, ongoing matches, and recently finished matches. It also stores information in a MongoDB database.
+Welcome to the **LeagueRankBot** project. This discord bot is built using the Java Discord API (JDA) and interacts with Riot Games’ League of Legends APIs to track and report player ranks, ongoing matches, and recently finished matches. It also stores information in a MongoDB database.
 
 ## Overview
 
