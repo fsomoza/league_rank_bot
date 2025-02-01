@@ -1,5 +1,6 @@
 package org.kiko.dev;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mongodb.client.FindIterable;
@@ -17,9 +18,13 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import org.bson.Document;
+import org.bson.types.ObjectId;
 import org.kiko.dev.adapters.MongoDbAdapter;
 import org.kiko.dev.adapters.RiotApiAdapter;
 import org.kiko.dev.dtos.*;
+import org.kiko.dev.dtos.timeline.FramesTimeLineDto;
+import org.kiko.dev.dtos.timeline.TimeLineDto;
+import org.kiko.dev.gold_graph.GraphGenerator;
 
 import java.awt.*;
 import java.io.IOException;
@@ -66,6 +71,8 @@ public class RankService {
     private final RiotApiAdapter riotApiAdapter;
     private final MongoDbAdapter mongoDbAdapter;
     private final JDA jda;
+
+
 
     public RankService(JDA jda) {
         this.riotApiAdapter = RiotApiAdapter.getInstance();
@@ -274,6 +281,45 @@ public class RankService {
     }
 
 
+    public void generateGoldGraph(String gameId) throws JsonProcessingException {
+        MongoDatabase mongoDatabase = mongoDbAdapter.getDatabase();
+        MongoCollection<Document> gamesInProgressCollection = mongoDatabase.getCollection(GAMES_IN_PROGRESS_COLLECTION + "-" + ContextHolder.getGuildId());
+        Document gameDocument = gamesInProgressCollection.find(Filters.eq("id", gameId)).first();
+        Document timeLineDocument = (Document) gameDocument.get("timeLineDto");
+        String timeLineJson = timeLineDocument.toJson();
+        ObjectMapper mapper = new ObjectMapper();
+        TimeLineDto timeLineDto = mapper.readValue(timeLineJson, TimeLineDto.class);
+
+        int blueTeamGold = 0;
+        int redTeamGold = 0;
+
+        int minutes_frames = timeLineDto.getInfo().getFrames().size();
+        int[] blue_team_frames = new int[minutes_frames];
+        int[] read_team_frames = new int[minutes_frames];
+
+        for(int i = 0; i< blue_team_frames.length; i++){
+           FramesTimeLineDto frame = timeLineDto.getInfo().getFrames().get(i);
+
+           for(int x = 1;  x <= 10; x++){
+               if(x <= 5){
+                   blueTeamGold = blueTeamGold + frame.getParticipantFrames().get(String.valueOf(x)).getTotalGold();
+                   continue;
+               }
+               redTeamGold = redTeamGold + frame.getParticipantFrames().get(String.valueOf(x)).getTotalGold();
+           }
+
+           blue_team_frames[i] = blueTeamGold;
+           read_team_frames[i] = redTeamGold;
+
+           blueTeamGold = 0;
+           redTeamGold = 0;
+        }
+
+        GraphGenerator.generateGraph(blue_team_frames, read_team_frames);
+        System.out.println("fdsfsdfsd");
+    }
+
+
 
     public void deletePlayer(String name, String tagline) throws Exception {
         // Get player PUUID from Riot API
@@ -353,7 +399,7 @@ public class RankService {
             try {
                 Thread.sleep(4000); // Add delay to avoid rate limits
 
-                try (InputStream imageStream = new URL("https://ddragon.leagueoflegends.com/cdn/14.24.1/img/champion/" + champion.getString("id") + ".png").openStream()) {
+                try (InputStream imageStream = new URL("https://ddragon.leagueoflegends.com/cdn/15.2.1/img/champion/" + champion.getString("id") + ".png").openStream()) {
                     guild.get().createEmoji(championName, Icon.from(imageStream)).queue(
                             emoji -> System.out.println("Created emoji: " + emoji.getName()),
                             error -> System.err.println("Failed to create emoji: " + error.getMessage())

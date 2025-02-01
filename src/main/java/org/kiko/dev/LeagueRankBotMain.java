@@ -1,6 +1,7 @@
 package org.kiko.dev;
 
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.Guild;
@@ -8,6 +9,7 @@ import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.events.guild.GuildJoinEvent;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
+import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.DefaultMemberPermissions;
@@ -133,6 +135,25 @@ public class LeagueRankBotMain extends ListenerAdapter {
         registerCommandsForGuild(guild);
         System.out.println("Registered commands for new guild: " + guild.getName());
     }
+
+    @Override
+    public void onButtonInteraction(ButtonInteractionEvent event) {
+        ContextHolder.setGuildId(event.getGuild().getId());
+
+        // Retrieve the custom ID and split it into parts
+        String[] parts = event.getComponentId().split(":");
+        if (parts.length > 1 && "goldGraph".equals(parts[0])) {
+            String hiddenReference = parts[1];
+            // Now you can use hiddenReference as needed
+            try {
+                rankService.generateGoldGraph(hiddenReference);
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException(e);
+            }
+            event.reply("Processing your request for reference: " + hiddenReference).queue();
+        }
+    }
+
 
 
 

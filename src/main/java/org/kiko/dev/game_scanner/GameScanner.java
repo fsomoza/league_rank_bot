@@ -1,5 +1,6 @@
 package org.kiko.dev.game_scanner;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mongodb.MongoException;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
@@ -11,6 +12,7 @@ import com.mongodb.client.result.UpdateResult;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.interactions.components.buttons.Button;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.kiko.dev.ConfigurationHolder;
@@ -20,6 +22,7 @@ import org.kiko.dev.adapters.RiotApiAdapter;
 import org.kiko.dev.dtos.CompletedGameInfo;
 import org.kiko.dev.dtos.CurrentGameInfo;
 import org.kiko.dev.dtos.Participant;
+import org.kiko.dev.dtos.timeline.TimeLineDto;
 
 import java.util.*;
 import java.util.List;
@@ -141,6 +144,7 @@ public class GameScanner {
                     // Game completed
                     Set<String> participantPuuids = extractParticipantPuuids(participants);
                     CompletedGameInfo completedGameInfo = riotApiAdapter.checkCompletedGame(foundGameId);
+                    TimeLineDto timeLineDto = riotApiAdapter.getTimeLine(foundGameId);
                     completedGameInfo.setQueueType(gameDoc.getString("queueType"));
 
                     // Use the new builder method
@@ -150,16 +154,30 @@ public class GameScanner {
                             champsCollection
                     );
 
+                    // Create a button for requesting the gold graph.
+                    // "goldGraph" is the custom ID that you will use to handle the button's interaction,
+                    // and "Gold Graph" is the text label shown on the button.
+                    Button goldGraphButton = Button.primary("goldGraph:" + foundGameId.split("_")[1], "Gold Graph");
+
                     channel.sendMessageEmbeds(embed)
+                            .setActionRow(goldGraphButton)
                             .setMessageReference(gameDoc.getString("messageId"))
                             .complete();
 
                     //TODO maybe implement a retry mechanism here in case the message is not sent
 
+                        ObjectMapper mapper = new ObjectMapper();
+
+                        // Serialize TimeLineDto to a JSON string
+                        String json = mapper.writeValueAsString(timeLineDto);
+                        // Parse the JSON string into a MongoDB Document
+                         Document timeLine =   Document.parse(json);
+
                     // Update the game document to set onGoing to false
                     gamesInProgressCollection.updateOne(
                             new Document("id", gameId),
-                            new Document("$set", new Document("onGoing", false))
+                            new Document("$set", new Document("onGoing", false)
+                                    .append("timeLineDto", timeLine))
                     );
 
                     //update the player rank
