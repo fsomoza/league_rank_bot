@@ -146,11 +146,10 @@ public class LeagueRankBotMain extends ListenerAdapter {
             String hiddenReference = parts[1];
             // Now you can use hiddenReference as needed
             try {
-                rankService.generateGoldGraph(hiddenReference);
+                rankService.generateGoldGraph(hiddenReference,event);
             } catch (JsonProcessingException e) {
                 throw new RuntimeException(e);
             }
-            event.reply("Processing your request for reference: " + hiddenReference).queue();
         }
     }
 

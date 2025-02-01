@@ -14,6 +14,9 @@ import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Icon;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.emoji.RichCustomEmoji;
+import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
+import net.dv8tion.jda.api.interactions.components.buttons.ButtonInteraction;
+import net.dv8tion.jda.api.utils.FileUpload;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -26,7 +29,10 @@ import org.kiko.dev.dtos.timeline.FramesTimeLineDto;
 import org.kiko.dev.dtos.timeline.TimeLineDto;
 import org.kiko.dev.gold_graph.GraphGenerator;
 
+import javax.imageio.ImageIO;
 import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
@@ -281,7 +287,7 @@ public class RankService {
     }
 
 
-    public void generateGoldGraph(String gameId) throws JsonProcessingException {
+    public void generateGoldGraph(String gameId, ButtonInteractionEvent event) throws JsonProcessingException {
         MongoDatabase mongoDatabase = mongoDbAdapter.getDatabase();
         MongoCollection<Document> gamesInProgressCollection = mongoDatabase.getCollection(GAMES_IN_PROGRESS_COLLECTION + "-" + ContextHolder.getGuildId());
         Document gameDocument = gamesInProgressCollection.find(Filters.eq("id", gameId)).first();
@@ -315,8 +321,28 @@ public class RankService {
            redTeamGold = 0;
         }
 
-        GraphGenerator.generateGraph(blue_team_frames, read_team_frames);
+
         System.out.println("fdsfsdfsd");
+
+        // Assume blueTeam and redTeam arrays are available
+        BufferedImage image = GraphGenerator.generateGraph(blue_team_frames, read_team_frames);
+
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+            // Write the image to a byte array in PNG format
+            ImageIO.write(image, "png", baos);
+            baos.flush();
+            byte[] imageBytes = baos.toByteArray();
+
+            // Reply to the interaction by attaching the image
+            event.reply("Here is your gold graph:")
+                    .addFiles(FileUpload.fromData(imageBytes, "GOLD_GRAPH.png"))
+                    .setEphemeral(true)  // This ensures only the requesting user sees the mess
+                    .queue();
+        } catch (IOException e) {
+            e.printStackTrace();
+            // Optionally reply with an error message
+            event.reply("An error occurred while generating the graph.").queue();
+        }
     }
 
 
