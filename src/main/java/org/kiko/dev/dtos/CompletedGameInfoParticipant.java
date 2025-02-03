@@ -8,6 +8,8 @@ public class CompletedGameInfoParticipant {
     private String championId;
     private String playerName;
     private String kda;
+
+    private int totalDmgDealtToChampions;
     private boolean win;
     private int teamId;
 
@@ -25,6 +27,7 @@ public class CompletedGameInfoParticipant {
         this.championId = "";
         this.registeredPlayer = false;
         this.puuid = "";
+        this.totalDmgDealtToChampions = 0;
     }
 
     // Getters
@@ -54,4 +57,13 @@ public class CompletedGameInfoParticipant {
 
     public void setRegisteredPlayer(boolean registeredPlayer) { this.registeredPlayer = registeredPlayer; }
     public void setPuuid(String puuid) { this.puuid = puuid; }
+
+
+    public int getTotalDmgDealtToChampions() {
+        return totalDmgDealtToChampions;
+    }
+
+    public void setTotalDmgDealtToChampions(int totalDmgDealtToChampions) {
+        this.totalDmgDealtToChampions = totalDmgDealtToChampions;
+    }
 }

@@ -23,6 +23,7 @@ import org.kiko.dev.dtos.CompletedGameInfo;
 import org.kiko.dev.dtos.CurrentGameInfo;
 import org.kiko.dev.dtos.Participant;
 import org.kiko.dev.dtos.timeline.TimeLineDto;
+import org.kiko.dev.gold_graph.GraphGenerator;
 
 import java.util.*;
 import java.util.List;
@@ -58,6 +59,7 @@ public class GameScanner {
     private final MongoDbAdapter mongoDbAdapter;
     private final String GUILD_ID;
     private final String CHANNEL_ID;
+
     public GameScanner() {
         this.riotApiAdapter = RiotApiAdapter.getInstance();
         this.mongoDbAdapter = MongoDbAdapter.getInstance();
@@ -68,7 +70,8 @@ public class GameScanner {
 
     /**
      * Checks which players are currently in-game or have just finished a game.
-     *z
+     * z
+     *
      * @throws Exception if data retrieval or messaging fails.
      */
     public void checkWhoInGame() throws Exception {
@@ -105,8 +108,8 @@ public class GameScanner {
                 //look for the game id in the games in progress collection
                 Document gameDoc = null;
 
-                if(currentGameInfo != null){
-                    gameDoc  = gamesInProgressCollection.find(
+                if (currentGameInfo != null) {
+                    gameDoc = gamesInProgressCollection.find(
                             new Document("id", currentGameInfo.getGameId())
                                     .append("onGoing", false)
                     ).first();
@@ -126,6 +129,7 @@ public class GameScanner {
      * Returns a set of players still in ongoing games.
      */
     private Set<String> handleCompletedGames(TextChannel channel, MongoCollection<Document> gamesInProgressCollection) {
+
         Set<String> playersInGame = new HashSet<>();
         //TODO try cath needs to be inside the loop, so if one of the api calls fails, it will not stop the whole thing
         // also maybe just log the error inside searchGameId() or checkCompletedGame() and continue
@@ -155,29 +159,33 @@ public class GameScanner {
                     );
 
                     // Create a button for requesting the gold graph.
-                    // "goldGraph" is the custom ID that you will use to handle the button's interaction,
+                    // "goldGraph" is the custom ID that I will use to handle the button's interaction,
                     // and "Gold Graph" is the text label shown on the button.
                     Button goldGraphButton = Button.primary("goldGraph:" + foundGameId.split("_")[1], "Gold Graph");
+                    Button dmgGraphButton = Button.primary("dmgGraph:" + foundGameId.split("_")[1], "Damage Graph");
 
                     channel.sendMessageEmbeds(embed)
-                            .setActionRow(goldGraphButton)
+                            .setActionRow(goldGraphButton,dmgGraphButton)
                             .setMessageReference(gameDoc.getString("messageId"))
                             .complete();
 
                     //TODO maybe implement a retry mechanism here in case the message is not sent
 
-                        ObjectMapper mapper = new ObjectMapper();
+                    ObjectMapper mapper = new ObjectMapper();
+                    // Serialize TimeLineDto to a JSON string
+                    String timeLineJson = mapper.writeValueAsString(timeLineDto);
+                    // Parse the JSON string into a MongoDB Document
+                    Document timeLineDocument = Document.parse(timeLineJson);
 
-                        // Serialize TimeLineDto to a JSON string
-                        String json = mapper.writeValueAsString(timeLineDto);
-                        // Parse the JSON string into a MongoDB Document
-                         Document timeLine =   Document.parse(json);
+                    String completedGameJson = mapper.writeValueAsString(completedGameInfo);
+                    Document completedGameInfoDocument = Document.parse(completedGameJson);
 
                     // Update the game document to set onGoing to false
                     gamesInProgressCollection.updateOne(
                             new Document("id", gameId),
                             new Document("$set", new Document("onGoing", false)
-                                    .append("timeLineDto", timeLine))
+                                    .append("timeLineDto", timeLineDocument)
+                                    .append("completedGameInfo", completedGameInfoDocument))
                     );
 
                     //update the player rank
@@ -213,7 +221,7 @@ public class GameScanner {
 
         for (Participant participant : participants) {
 
-            if(participant.isRegisteredPlayer()){
+            if (participant.isRegisteredPlayer()) {
                 participantDocs.add(new Document("puuid", participant.getPuuid())
                         .append("championId", participant.getChampionId())
                         .append("playerName", participant.getPlayerName()));
@@ -311,7 +319,7 @@ public class GameScanner {
         Optional<RiotApiAdapter.LeagueEntry> optionalEntry;
         RiotApiAdapter.LeagueEntry entry;
 
-        if(queueType.equals("RANKED_SOLO/DUO")) {
+        if (queueType.equals("RANKED_SOLO/DUO")) {
             optionalEntry = riotApiAdapter.getSoloQueueRank(encryptedSummonerId);
             entry = optionalEntry.get();
             rank = String.format("%s %s %d LP",
@@ -322,7 +330,7 @@ public class GameScanner {
             wins = entry.getWins();
             losses = entry.getLosses();
             winrate = wins > 0 ? (double) wins / (wins + losses) * 100 : 0.0;
-        }else {
+        } else {
             optionalEntry = riotApiAdapter.getFlexQueueRank(encryptedSummonerId);
             entry = optionalEntry.get();
             rank = String.format("%s %s %d LP",
@@ -345,10 +353,10 @@ public class GameScanner {
         // Create the update document with $set to update "rank" and "elo"
         Document update;
 
-        if(queueType.equals("RANKED_SOLO/DUO")){
+        if (queueType.equals("RANKED_SOLO/DUO")) {
             update = new Document("$set", new Document("soloQRank", rank).append("soloQElo", elo).append("soloQwins", wins).append("soloQlosses", losses).
                     append("soloQwinrate", Math.round(winrate * 100.0) / 100.0));  // Round to 2 decimal places
-        }else{
+        } else {
             update = new Document("$set", new Document("flexQRank", rank).append("flexQElo", elo).append("flexQwins", wins).append("flexQlosses", losses).
                     append("flexQwinrate", Math.round(winrate * 100.0) / 100.0));  // Round to 2 decimal places
         }
@@ -455,21 +463,22 @@ public class GameScanner {
         List<Participant> participants = currentGameInfo.getParticipants();
 
         for (Participant participant : participants) {
-            if(participant.isRegisteredPlayer()){
+            if (participant.isRegisteredPlayer()) {
                 Document player = ranksCollection.find(new Document("puuid", participant.getPuuid())).first();
-                if(player != null){
+                if (player != null) {
                     participant.setRank(queueType.equals("RANKED_FLEX") ? player.getString("flexQRank") : player.getString("soloQRank"));
                     participant.setLosses(queueType.equals("RANKED_FLEX") ? player.getInteger("flexQlosses") : player.getInteger("soloQlosses"));
                     participant.setWins(queueType.equals("RANKED_FLEX") ? player.getInteger("flexQwins") : player.getInteger("soloQwins"));
-                    participant.setWinrate(queueType.equals("RANKED_FLEX") ? player.getDouble("flexQwinrate") : player.getDouble("soloQwinrate"));;
+                    participant.setWinrate(queueType.equals("RANKED_FLEX") ? player.getDouble("flexQwinrate") : player.getDouble("soloQwinrate"));
+                    ;
                 }
-            }else{
+            } else {
 
                 participant.setPlayerName(riotApiAdapter.getByPuuid(participant.getPuuid()).getGameName());
 
                 Optional<RiotApiAdapter.LeagueEntry> optionalEntry = queueType.equals("RANKED_FLEX") ? riotApiAdapter.getFlexQueueRank(participant.getSummonerId()) :
                         riotApiAdapter.getSoloQueueRank(participant.getSummonerId());
-                if(optionalEntry.isPresent()){
+                if (optionalEntry.isPresent()) {
                     RiotApiAdapter.LeagueEntry entry = optionalEntry.get();
                     participant.setRank(String.format("%s %s %d LP",
                             entry.getTier(),

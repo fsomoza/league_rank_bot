@@ -139,17 +139,25 @@ public class LeagueRankBotMain extends ListenerAdapter {
     @Override
     public void onButtonInteraction(ButtonInteractionEvent event) {
         ContextHolder.setGuildId(event.getGuild().getId());
-
-        // Retrieve the custom ID and split it into parts
         String[] parts = event.getComponentId().split(":");
-        if (parts.length > 1 && "goldGraph".equals(parts[0])) {
-            String hiddenReference = parts[1];
-            // Now you can use hiddenReference as needed
-            try {
-                rankService.generateGoldGraph(hiddenReference,event);
-            } catch (JsonProcessingException e) {
-                throw new RuntimeException(e);
+        event.deferReply(true).queue();
+        try {
+            switch (parts[0]) {
+                case "goldGraph":
+                    rankService.generateGoldGraph(parts[1], event);
+                    break;
+                case "dmgGraph":
+                    rankService.generateDmgGraph(parts[1], event);
+                    break;
+                default:
+                    event.reply("Unknown button interaction type: " + parts[0]).queue();
+                    break;
             }
+        } catch (ArrayIndexOutOfBoundsException e) {
+            event.reply("Invalid button ID format").queue();
+        } catch (Exception e) {
+            e.printStackTrace();
+            event.reply("An error occurred while processing your request").queue();
         }
     }
 
