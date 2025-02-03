@@ -12,6 +12,7 @@ Welcome to the **LeagueRankBot** project. This discord bot is built using the Ja
     ![LeagueRankBot Logo](./assets/ANNOUNCED_MATCH.png)
   - Which matches have recently completed.
     ![LeagueRankBot Logo](./assets/FINISHED_MATCH_ANNOUNCEMENT.png)
+  - Generate Gold and Damage graphs.
 - **Display ranks and match results**: Sends status updates and match summaries in designated Discord text channels.
 - **Provide slash commands for ease of use**: (`/rank`, `/ranking`, `/add`, `/delete`, etc.).
 
