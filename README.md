@@ -9,7 +9,7 @@ Welcome to the **LeagueRankBot** project. This discord bot is built using the Ja
 - **Manage player registrations**: Add or remove players by their Riot ID and tagline.
 - **Check in-progress and completed matches**: Scans every minute to detect:
   - Which registered players are currently in a match.
-    ![LeagueRankBot Logo]((https://prnt.sc/wv9-guyMEnDS.png))
+    ![LeagueRankBot Logo](./assets/ANNOUNCED_MATCH.png)
   - Which matches have recently completed.
 - **Display ranks and match results**: Sends status updates and match summaries in designated Discord text channels.
 - **Provide slash commands for ease of use**: (`/rank`, `/ranking`, `/add`, `/delete`, etc.).
