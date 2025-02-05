@@ -295,6 +295,7 @@ public class RiotApiAdapter {
                         completedGameInfoParticipant.setPlayerName(player.get("riotIdGameName").getAsString());
                         completedGameInfoParticipant.setChampion(player.get("championName").getAsString());;
                         completedGameInfoParticipant.setChampionId(player.get("championId").getAsString());
+                        completedGameInfoParticipant.setTotalDmgDealtToChampions(player.get("totalDamageDealtToChampions").getAsInt());
                         String kills = player.get("kills").getAsString();
                         String deaths = player.get("deaths").getAsString();
                         String assists = player.get("assists").getAsString();

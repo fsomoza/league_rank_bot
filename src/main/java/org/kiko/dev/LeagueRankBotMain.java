@@ -1,6 +1,7 @@
 package org.kiko.dev;
 
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.Guild;
@@ -8,6 +9,7 @@ import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.events.guild.GuildJoinEvent;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
+import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.DefaultMemberPermissions;
@@ -133,6 +135,32 @@ public class LeagueRankBotMain extends ListenerAdapter {
         registerCommandsForGuild(guild);
         System.out.println("Registered commands for new guild: " + guild.getName());
     }
+
+    @Override
+    public void onButtonInteraction(ButtonInteractionEvent event) {
+        ContextHolder.setGuildId(event.getGuild().getId());
+        String[] parts = event.getComponentId().split(":");
+        event.deferReply(true).queue();
+        try {
+            switch (parts[0]) {
+                case "goldGraph":
+                    rankService.generateGoldGraph(parts[1], event);
+                    break;
+                case "dmgGraph":
+                    rankService.generateDmgGraph(parts[1], event);
+                    break;
+                default:
+                    event.reply("Unknown button interaction type: " + parts[0]).queue();
+                    break;
+            }
+        } catch (ArrayIndexOutOfBoundsException e) {
+            event.reply("Invalid button ID format").queue();
+        } catch (Exception e) {
+            e.printStackTrace();
+            event.reply("An error occurred while processing your request").queue();
+        }
+    }
+
 
 
 
