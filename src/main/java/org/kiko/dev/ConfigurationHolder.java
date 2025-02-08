@@ -58,4 +58,8 @@ public class ConfigurationHolder {
         return getProperty("discord.channel.id");
     }
 
+//    public static String isDevEnv(){
+//        retuA
+//    }
+
 }
