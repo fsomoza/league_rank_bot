@@ -162,10 +162,10 @@ public class RankService {
                 throw new IOException("Failed to fetch champion data. Response: " + response);
             }
 
-            String responseBody = response.body().string();
-            ObjectMapper objectMapper = new ObjectMapper();
-            JsonNode rootNode = objectMapper.readTree(responseBody);
-            JsonNode dataNode = rootNode.get("data");
+                                                                                                                                String responseBody = response.body().string();
+                                                                                                                                ObjectMapper objectMapper = new ObjectMapper();
+                                                                                                                                JsonNode rootNode = objectMapper.readTree(responseBody);
+                                                                                                                                JsonNode dataNode = rootNode.get("data");
 
             if (dataNode == null || !dataNode.isObject()) {
                 throw new IOException("Invalid JSON: 'data' field is missing or not an object.");
