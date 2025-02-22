@@ -2,21 +2,20 @@ package org.kiko.dev;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.MongoCollection;
+
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
-import org.kiko.dev.adapters.MongoDbAdapter;
 
-import java.io.BufferedReader;
+import org.bson.Document;
+import org.kiko.dev.adapters.MongoDbAdapter;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.net.URL;
-import java.net.URLConnection;
 
 public class StartupChecks {
 
-   private final MongoDbAdapter mongoDbAdapter;
+  private final MongoDbAdapter mongoDbAdapter;
 
   public StartupChecks() {
     this.mongoDbAdapter = MongoDbAdapter.getInstance();
@@ -24,6 +23,8 @@ public class StartupChecks {
 
   public void doChecks() {
     // go to riot version url and retrieve the las version
+
+    MongoDatabase database = mongoDbAdapter.getDatabase();
 
     String urlString = "https://ddragon.leagueoflegends.com/api/versions.json";
 
@@ -41,13 +42,22 @@ public class StartupChecks {
       if (!rootNode.isArray()) {
         throw new Exception("response type of versions is not the expected one");
       }
+
+      MongoCollection<Document> versionCollection = database.getCollection("dDragonVersion");
+
+      Document versionDocument = versionCollection.find().first();
+
+      String versionFromDb = versionDocument.getString("version");
       // get the first element of the array which is the last version
       String version = rootNode.get(0).toString();
 
-      // TODO Check if the version matches the one on the DB, if not, proceed to look
-      // for a new champ addition and if theres a
-      // new one, add it to the champions collection
+      if (versionFromDb != version) {
 
+        // TODO Check if the version matches the one on the DB, if not, proceed to look
+        // for a new champ addition and if theres a
+        // new one, add it to the champions collection
+
+      }
     } catch (Exception e) {
       e.printStackTrace();
     }
