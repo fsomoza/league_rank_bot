@@ -43,6 +43,17 @@ public class StartupChecks {
         throw new Exception("response type of versions is not the expected one");
       }
 
+      String collectionName = "dDragonVersion";
+      Document filter = new Document("name", collectionName);
+
+      Boolean doesVersionCollectionExists = database.listCollections()
+          .filter(filter)
+          .first() != null;
+
+      if (doesVersionCollectionExists) {
+
+      }
+
       MongoCollection<Document> versionCollection = database.getCollection("dDragonVersion");
 
       Document versionDocument = versionCollection.find().first();
