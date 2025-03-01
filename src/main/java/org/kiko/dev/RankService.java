@@ -113,14 +113,17 @@ public class RankService {
         throw new Exception("response type of versions is not the expected one");
       }
 
-      String version = rootNode.get(0).toString();
+      String version = rootNode.get(0).asText();
 
       database.createCollection(dDragonVersionCollectionName);
 
       MongoCollection<Document> collection = database.getCollection(dDragonVersionCollectionName);
 
+      collection.insertOne(new Document().append("version", version));
+
       String versionDocument = collection.find().limit(1).toString();
 
+      System.out.println("helllooooooo");
       // MongoCollection<Document> versionCollection =
       // database.getCollection("dDragonVersion");
 
