@@ -82,6 +82,29 @@ public class RankService {
     this.CHANNEL_ID = ConfigurationHolder.getChannelId();
   }
 
+  protected String getVersionFromRiot() throws Exception {
+    String urlString = "https://ddragon.leagueoflegends.com/api/versions.json";
+
+    OkHttpClient client = new OkHttpClient();
+    Response response = client.newCall(new Request.Builder().url(urlString).build()).execute();
+
+    if (!response.isSuccessful()) {
+      throw new IOException("error retrieving the vesion json");
+    }
+
+    String responseBody = response.body().string();
+    ObjectMapper objectMapper = new ObjectMapper();
+    JsonNode rootNode = objectMapper.readTree(responseBody);
+
+    if (!rootNode.isArray()) {
+      throw new Exception("response type of versions is not the expected one");
+    }
+
+    String version = rootNode.get(0).asText();
+
+    return version;
+  }
+
   public void doChecks() throws Exception {
 
     String dDragonVersionCollectionName = "dDragonVersion";
@@ -96,24 +119,8 @@ public class RankService {
         .first() != null;
 
     if (!versionCollectionExists) {
-      String urlString = "https://ddragon.leagueoflegends.com/api/versions.json";
 
-      OkHttpClient client = new OkHttpClient();
-      Response response = client.newCall(new Request.Builder().url(urlString).build()).execute();
-
-      if (!response.isSuccessful()) {
-        throw new IOException("error retrieving the vesion json");
-      }
-
-      String responseBody = response.body().string();
-      ObjectMapper objectMapper = new ObjectMapper();
-      JsonNode rootNode = objectMapper.readTree(responseBody);
-
-      if (!rootNode.isArray()) {
-        throw new Exception("response type of versions is not the expected one");
-      }
-
-      String version = rootNode.get(0).asText();
+      String version = getVersionFromRiot();
 
       database.createCollection(dDragonVersionCollectionName);
 
@@ -124,6 +131,7 @@ public class RankService {
       String versionDocument = collection.find().limit(1).toString();
 
       System.out.println("helllooooooo");
+
       // MongoCollection<Document> versionCollection =
       // database.getCollection("dDragonVersion");
 
