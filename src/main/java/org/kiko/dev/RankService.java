@@ -28,6 +28,8 @@ import org.kiko.dev.dtos.timeline.TimeLineDto;
 import org.kiko.dev.gold_graph.GraphGenerator;
 
 import javax.imageio.ImageIO;
+import javax.print.Doc;
+
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
@@ -65,6 +67,7 @@ public class RankService {
   private static final String SERVER_RANKS_COLLECTION = "serverRanks";
   private static final String GAMES_IN_PROGRESS_COLLECTION = "gamesInProgress";
   private static final String CHAMPIONS_COLLECTION = "champions";
+  private static final String VERSION_COLLECTION = "dDragonVersion";
 
   // Guild and channel IDs – consider externalizing into configuration
   private final String GUILD_ID;
@@ -142,17 +145,19 @@ public class RankService {
       // String version = rootNode.get(0).toString();
     }
 
-    // first check if the champions collection exists
-    Document filter = new Document("name", "champions");
+    String championsCollectionName = "champions";
+    Document championsCollectionFilter = new Document("name", championsCollectionName);
+    // String version = rootNode.get(0).toString();
 
-    // Assign the result to a variable
     Boolean championsCollectionExists = database.listCollections()
-        .filter(filter)
+        .filter(championsCollectionFilter)
         .first() != null;
+    // first check if the champions collection exists
 
     if (!championsCollectionExists) {
       System.out.println("Champions collection does not exist!");
       fetchAndStoreChampions();
+      // createCustomEmojiFromURL();
 
     }
 
@@ -225,7 +230,12 @@ public class RankService {
    * @throws IOException if network or parsing fails.
    */
   public void fetchAndStoreChampions() throws IOException {
-    String url = "https://ddragon.leagueoflegends.com/cdn/15.2.1/data/en_US/champion.json";
+
+    MongoDatabase database = mongoDbAdapter.getDatabase();
+    MongoCollection<Document> versionCollection = database.getCollection(VERSION_COLLECTION);
+    Document versionDocument = versionCollection.find().first();
+    String version = versionDocument.getString("version").toString();
+    String url = "https://ddragon.leagueoflegends.com/cdn/" + version + "/data/en_US/champion.json";
     OkHttpClient client = new OkHttpClient();
 
     try (Response response = client.newCall(new Request.Builder().url(url).build()).execute()) {
@@ -242,7 +252,6 @@ public class RankService {
         throw new IOException("Invalid JSON: 'data' field is missing or not an object.");
       }
 
-      MongoDatabase database = mongoDbAdapter.getDatabase();
       MongoCollection<Document> collection = database.getCollection(CHAMPIONS_COLLECTION);
 
       Iterator<Map.Entry<String, JsonNode>> fields = dataNode.fields();
