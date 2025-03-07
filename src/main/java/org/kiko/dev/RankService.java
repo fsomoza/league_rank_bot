@@ -15,20 +15,23 @@ import net.dv8tion.jda.api.entities.Icon;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.emoji.RichCustomEmoji;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
+import net.dv8tion.jda.api.requests.restaction.AuditableRestAction;
 import net.dv8tion.jda.api.utils.FileUpload;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import org.bson.Document;
+import org.bson.conversions.Bson;
 import org.kiko.dev.adapters.MongoDbAdapter;
 import org.kiko.dev.adapters.RiotApiAdapter;
 import org.kiko.dev.dtos.*;
 import org.kiko.dev.dtos.timeline.FramesTimeLineDto;
 import org.kiko.dev.dtos.timeline.TimeLineDto;
 import org.kiko.dev.gold_graph.GraphGenerator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.imageio.ImageIO;
-import javax.print.Doc;
 
 import java.awt.*;
 import java.awt.image.BufferedImage;
@@ -37,6 +40,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.time.Instant;
+import java.time.chrono.MinguoChronology;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -69,7 +73,7 @@ public class RankService {
   private static final String CHAMPIONS_COLLECTION = "champions";
   private static final String VERSION_COLLECTION = "dDragonVersion";
 
-  // Guild and channel IDs – consider externalizing into configuration
+    // Guild and channel IDs – consider externalizing into configuration
   private final String GUILD_ID;
   private final String CHANNEL_ID;
 
@@ -109,56 +113,56 @@ public class RankService {
   }
 
   public void doChecks() throws Exception {
+    try {
 
-    String dDragonVersionCollectionName = "dDragonVersion";
+      String dDragonVersionCollectionName = "dDragonVersion";
 
-    MongoDatabase database = mongoDbAdapter.getDatabase();
+      MongoDatabase database = mongoDbAdapter.getDatabase();
 
-    Document versionFilter = new Document("name", dDragonVersionCollectionName);
-    // String version = rootNode.get(0).toString();
-
-    Boolean versionCollectionExists = database.listCollections()
-        .filter(versionFilter)
-        .first() != null;
-
-    if (!versionCollectionExists) {
-
-      String version = getVersionFromRiot();
-
-      database.createCollection(dDragonVersionCollectionName);
-
-      MongoCollection<Document> collection = database.getCollection(dDragonVersionCollectionName);
-
-      collection.insertOne(new Document().append("version", version));
-
-      String versionDocument = collection.find().limit(1).toString();
-
-      System.out.println("helllooooooo");
-
-      // MongoCollection<Document> versionCollection =
-      // database.getCollection("dDragonVersion");
-
-      // Document versionDocument = versionCollection.find().first();
-
-      // String versionFromDb = versionDocument.getString("version");
-      // // get the first element of the array which is the last version
+      Document versionFilter = new Document("name", dDragonVersionCollectionName);
       // String version = rootNode.get(0).toString();
-    }
 
-    String championsCollectionName = "champions";
-    Document championsCollectionFilter = new Document("name", championsCollectionName);
-    // String version = rootNode.get(0).toString();
+      Boolean versionCollectionExists = database.listCollections()
+              .filter(versionFilter)
+              .first() != null;
 
-    Boolean championsCollectionExists = database.listCollections()
-        .filter(championsCollectionFilter)
-        .first() != null;
-    // first check if the champions collection exists
+      String versionFromRiot = getVersionFromRiot();
+      if (!versionCollectionExists) {
+        database.createCollection(dDragonVersionCollectionName);
+        MongoCollection<Document> collection = database.getCollection(dDragonVersionCollectionName);
+        collection.insertOne(new Document().append("version", versionFromRiot));
+      }else{
+        MongoCollection<Document> versionCollection = database.getCollection(dDragonVersionCollectionName);
+        Document versionDocument = versionCollection.find().first();
+        String versionFromDb = versionDocument.get("version").toString();
+        if(!versionFromRiot.equals(versionFromDb)){
+          System.out.println("updating version number");
+          Bson updates = Updates.combine(Updates.set("version", versionFromRiot));
+          versionCollection.updateOne(versionDocument,updates);
+        }
+      }
 
-    if (!championsCollectionExists) {
-      System.out.println("Champions collection does not exist!");
-      fetchAndStoreChampions();
-      // createCustomEmojiFromURL();
+      String championsCollectionName = "champions";
+      Document championsCollectionFilter = new Document("name", championsCollectionName);
 
+      Boolean championsCollectionExists = database.listCollections()
+              .filter(championsCollectionFilter)
+              .first() != null;
+      // first check if the champions collection exists
+
+      if (!championsCollectionExists) {
+        System.out.println("Champions collection does not exist!");
+        fetchAndStoreChampions();
+        createCustomEmojiFromURL();
+        updateChampionsWithEmojiIds();
+      }else{
+        //TODO PASAR ENV VARIABLES PARA USAR DB TEST Y SI NO ES LA MISMA
+        // VER VER QUE CAMPEON FALTA Y GUARDARLO
+
+
+      }
+    }catch (Exception e){
+      System.out.println(e);
     }
 
   }
@@ -224,12 +228,8 @@ public class RankService {
     }
   }
 
-  /**
-   * Fetch champion data from Riot's CDN and store it in MongoDB.
-   *
-   * @throws IOException if network or parsing fails.
-   */
-  public void fetchAndStoreChampions() throws IOException {
+
+  public List<Champion> fetchChampionsListFromRiotCdn(){
 
     MongoDatabase database = mongoDbAdapter.getDatabase();
     MongoCollection<Document> versionCollection = database.getCollection(VERSION_COLLECTION);
@@ -251,24 +251,48 @@ public class RankService {
       if (dataNode == null || !dataNode.isObject()) {
         throw new IOException("Invalid JSON: 'data' field is missing or not an object.");
       }
-
-      MongoCollection<Document> collection = database.getCollection(CHAMPIONS_COLLECTION);
-
       Iterator<Map.Entry<String, JsonNode>> fields = dataNode.fields();
+      List<Champion> champions =  new ArrayList<>();
       while (fields.hasNext()) {
         Map.Entry<String, JsonNode> entry = fields.next();
         Champion champion = new ObjectMapper().treeToValue(entry.getValue(), Champion.class);
+        champions.add(champion);
+      }
+
+      return  champions;
+    } catch (IOException e) {
+        throw new RuntimeException(e);
+    }
+  }
+
+  /**
+   * Fetch champion data from Riot's CDN and store it in MongoDB.
+   *
+   * @throws IOException if network or parsing fails.
+   */
+  public void fetchAndStoreChampions() throws IOException {
+
+    MongoDatabase database = mongoDbAdapter.getDatabase();
+    MongoCollection<Document> versionCollection = database.getCollection(VERSION_COLLECTION);
+    Document versionDocument = versionCollection.find().first();
+    String version = versionDocument.getString("version").toString();
+
+      MongoCollection<Document> collection = database.getCollection(CHAMPIONS_COLLECTION);
+      collection.insertOne(new Document("version", version));
+
+      List<Champion> champions = new ArrayList<>();
+      champions = fetchChampionsListFromRiotCdn();
+      for (Champion champion : champions){
 
         Document championDoc = new Document("id", champion.getId())
-            .append("name", champion.getName())
-            .append("key", champion.getKey());
+                .append("name", champion.getName())
+                .append("key", champion.getKey());
 
         collection.replaceOne(
-            new Document("id", champion.getId()),
-            championDoc,
-            new ReplaceOptions().upsert(true));
+                new Document("id", champion.getId()),
+                championDoc,
+                new ReplaceOptions().upsert(true));
       }
-    }
   }
 
   /**
@@ -505,6 +529,39 @@ public class RankService {
     }
   }
 
+
+  public void deleteEmoji(){
+
+    String guild2 = "1323016315841282180";
+    String guild3 = "1323016358157615194";
+    String guild4 = "1323016391573508168";
+    AtomicReference<Guild> guild1 = new AtomicReference<>(jda.getGuildById("1323016231485440000"));
+    List<RichCustomEmoji> emojiList = guild1.get().getEmojis();
+   for (RichCustomEmoji em : emojiList){
+     em.delete().complete();
+     System.out.print("fdsafds");
+   }
+
+    AtomicReference<Guild> guild2Reference = new AtomicReference<>(jda.getGuildById(guild2));
+     emojiList = guild2Reference.get().getEmojis();
+    for (RichCustomEmoji em : emojiList){
+      em.delete().complete();
+    }
+
+
+    AtomicReference<Guild> guild3Reference = new AtomicReference<>(jda.getGuildById(guild3));
+    emojiList = guild3Reference.get().getEmojis();
+    for (RichCustomEmoji em : emojiList){
+      em.delete().complete();
+    }
+    AtomicReference<Guild> guild4Reference = new AtomicReference<>(jda.getGuildById(guild4));
+    emojiList = guild4Reference.get().getEmojis();
+    for (RichCustomEmoji em : emojiList){
+      em.delete().complete();
+    }
+
+
+  }
   public void createCustomEmojiFromURL() {
 
     String guild2 = "1323016315841282180";
@@ -513,43 +570,58 @@ public class RankService {
 
     MongoDatabase database = mongoDbAdapter.getDatabase();
     MongoCollection<Document> serverRanksCollection = database.getCollection(CHAMPIONS_COLLECTION);
+    MongoCollection<Document> versionCollection = database.getCollection(VERSION_COLLECTION);
 
-    List<Document> champions = serverRanksCollection.find().into(new ArrayList<>());
+    Document documentVersion = versionCollection.find().first();
+    String version = documentVersion.get("version").toString();
+
     AtomicInteger counter = new AtomicInteger();
-
     AtomicReference<Guild> guild = new AtomicReference<>(jda.getGuildById("1323016231485440000"));
     System.out.println("Guild Name: " + guild.get().getName() + ", Guild ID: " + guild.get().getId());
 
-    champions.stream().forEach(champion -> {
-      counter.getAndIncrement();
-      String championName = champion.getString("id");
-      System.out.println(champion.getString("name"));
+    List<Document> champions = serverRanksCollection.find().into(new ArrayList<>());
 
-      try {
-        Thread.sleep(4000); // Add delay to avoid rate limits
-
-        try (InputStream imageStream = new URL(
-            "https://ddragon.leagueoflegends.com/cdn/15.2.1/img/champion/" + champion.getString("id") + ".png")
-            .openStream()) {
-          guild.get().createEmoji(championName, Icon.from(imageStream)).queue(
-              emoji -> System.out.println("Created emoji: " + emoji.getName()),
-              error -> System.err.println("Failed to create emoji: " + error.getMessage()));
-
-          if (counter.get() == 50) {
-            guild.set(jda.getGuildById(guild2));
-            System.out.println("Switching to guild 2");
-          } else if (counter.get() == 100) {
-            guild.set(jda.getGuildById(guild3));
-            System.out.println("Switching to guild 3");
-          } else if (counter.get() == 150) {
-            guild.set(jda.getGuildById(guild4));
-            System.out.println("Switching to guild 4");
-          }
+      for (int i = 0; i < champions.size();  i++){
+        if (i == 0){
+          continue;
         }
-      } catch (Exception e) {
-        e.printStackTrace();
+        String championName = champions.get(i).getString("id");
+        System.out.println(champions.get(i).getString("name"));
+
+        try {
+
+          try (InputStream imageStream = new URL(
+                  "https://ddragon.leagueoflegends.com/cdn/" + version + "/img/champion/" + champions.get(i).getString("id") + ".png")
+                  .openStream()) {
+
+            //if the emoji doesnt exits then  create it
+            List<RichCustomEmoji> emojiList = guild.get().getEmojisByName(championName, false);
+
+            if (emojiList.isEmpty()) {
+
+//            guild.get().createEmoji(championName, Icon.from(imageStream)).queue(
+//                emoji -> System.out.println("Created emoji: " + emoji.getName()),
+//                error -> System.err.println("Failed to create emoji: " + error.getMessage()));
+
+              guild.get().createEmoji(championName, Icon.from(imageStream)).complete();
+            }
+
+            if (i == 50) {
+              guild.set(jda.getGuildById(guild2));
+              System.out.println("Switching to guild 2");
+            } else if (i == 100) {
+              guild.set(jda.getGuildById(guild3));
+              System.out.println("Switching to guild 3");
+            } else if (i == 150) {
+              guild.set(jda.getGuildById(guild4));
+              System.out.println("Switching to guild 4");
+            }
+          }
+        } catch (Exception e) {
+          e.printStackTrace();
       }
-    });
+      }
+
   }
 
   public void updateChampionsWithEmojiIds() {
