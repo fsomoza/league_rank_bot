@@ -184,7 +184,7 @@ public class RiotApiAdapter {
 
       HttpRequest request = HttpRequest.newBuilder()
           .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
-          .header("X-Riot-Token", RIOT_API_KEY)
+          .header("X-Riot-Token", RIOT_API_KEY).timeout(Duration.ofSeconds(15))
           .GET()
           .build();
 

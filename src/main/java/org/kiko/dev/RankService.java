@@ -156,9 +156,20 @@ public class RankService {
         createCustomEmojiFromURL();
         updateChampionsWithEmojiIds();
       }else{
-        //TODO PASAR ENV VARIABLES PARA USAR DB TEST Y SI NO ES LA MISMA
-        // VER VER QUE CAMPEON FALTA Y GUARDARLO
 
+        MongoCollection<Document> versionCollection = database.getCollection(dDragonVersionCollectionName);
+        Document versionDocument = versionCollection.find().first();
+        String versionFromDb = versionDocument.get("version").toString();
+
+
+        MongoCollection<Document> championsCollection = database.getCollection(championsCollectionName);
+        String versionOnChampCollection = championsCollection.find().first().get("version").toString();
+
+       if (!versionFromDb.equals(versionOnChampCollection)){
+
+       }
+
+        List<Champion> champions = fetchChampionsListFromRiotCdn();
 
       }
     }catch (Exception e){
@@ -282,16 +293,24 @@ public class RankService {
 
       List<Champion> champions = new ArrayList<>();
       champions = fetchChampionsListFromRiotCdn();
-      for (Champion champion : champions){
+      for (Champion champion : champions) {
+        // Create a filter that matches the document with the given id and where either
+        // the 'name' or 'key' is different from the champion's current values.
+        Document filter = new Document("id", champion.getId())
+                .append("$or", Arrays.asList(
+                        new Document("name", new Document("$ne", champion.getName())),
+                        new Document("key", new Document("$ne", champion.getKey()))
+                ));
 
-        Document championDoc = new Document("id", champion.getId())
-                .append("name", champion.getName())
-                .append("key", champion.getKey());
+        // Create an update document to set the specified fields
+        Document update = new Document("$set", new Document("name", champion.getName())
+                .append("key", champion.getKey()));
 
-        collection.replaceOne(
-                new Document("id", champion.getId()),
-                championDoc,
-                new ReplaceOptions().upsert(true));
+        // Set the upsert option to true to insert the document if it doesn't exist
+        UpdateOptions options = new UpdateOptions().upsert(true);
+
+        // Perform the update operation
+        collection.updateOne(filter, update, options);
       }
   }
 
@@ -582,6 +601,7 @@ public class RankService {
     List<Document> champions = serverRanksCollection.find().into(new ArrayList<>());
 
       for (int i = 0; i < champions.size();  i++){
+        //the first doucument is the version one so we skeep it
         if (i == 0){
           continue;
         }
@@ -598,11 +618,9 @@ public class RankService {
             List<RichCustomEmoji> emojiList = guild.get().getEmojisByName(championName, false);
 
             if (emojiList.isEmpty()) {
-
 //            guild.get().createEmoji(championName, Icon.from(imageStream)).queue(
 //                emoji -> System.out.println("Created emoji: " + emoji.getName()),
 //                error -> System.err.println("Failed to create emoji: " + error.getMessage()));
-
               guild.get().createEmoji(championName, Icon.from(imageStream)).complete();
             }
 
