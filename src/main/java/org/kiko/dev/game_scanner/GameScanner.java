@@ -197,7 +197,7 @@ public class GameScanner {
                     // retrieve the players
                     mongoDbAdapter.getDatabase().getCollection(SERVER_RANKS_COLLECTION + "-" + ContextHolder.getGuildId()).find(filter).forEach(player -> {
                         try {
-                            updatePlayerRank(player.getString("puuid"), gameDoc.getString("queueType"), player.getString("encryptedSummonerId"));
+                            updatePlayerRank(player.getString("puuid"), gameDoc.getString("queueType"));
                         } catch (Exception e) {
                             throw new RuntimeException(e);
                         }
@@ -309,7 +309,7 @@ public class GameScanner {
                 .into(new ArrayList<>());
     }
 
-    private void updatePlayerRank(String puuid, String queueType, String encryptedSummonerId) throws Exception {
+    private void updatePlayerRank(String puuid, String queueType) throws Exception {
         int elo = 0;
         int wins = 0;
         int losses = 0;
@@ -320,7 +320,7 @@ public class GameScanner {
         RiotApiAdapter.LeagueEntry entry;
 
         if (queueType.equals("RANKED_SOLO/DUO")) {
-            optionalEntry = riotApiAdapter.getSoloQueueRank(encryptedSummonerId);
+            optionalEntry = riotApiAdapter.getSoloQueueRank(puuid);
             entry = optionalEntry.get();
             rank = String.format("%s %s %d LP",
                     entry.getTier(),
@@ -331,7 +331,7 @@ public class GameScanner {
             losses = entry.getLosses();
             winrate = wins > 0 ? (double) wins / (wins + losses) * 100 : 0.0;
         } else {
-            optionalEntry = riotApiAdapter.getFlexQueueRank(encryptedSummonerId);
+            optionalEntry = riotApiAdapter.getFlexQueueRank(puuid);
             entry = optionalEntry.get();
             rank = String.format("%s %s %d LP",
                     entry.getTier(),
@@ -476,8 +476,8 @@ public class GameScanner {
 
                 participant.setPlayerName(riotApiAdapter.getByPuuid(participant.getPuuid()).getGameName());
 
-                Optional<RiotApiAdapter.LeagueEntry> optionalEntry = queueType.equals("RANKED_FLEX") ? riotApiAdapter.getFlexQueueRank(participant.getSummonerId()) :
-                        riotApiAdapter.getSoloQueueRank(participant.getSummonerId());
+                Optional<RiotApiAdapter.LeagueEntry> optionalEntry = queueType.equals("RANKED_FLEX") ? riotApiAdapter.getFlexQueueRank(participant.getPuuid()) :
+                        riotApiAdapter.getSoloQueueRank(participant.getPuuid());
                 if (optionalEntry.isPresent()) {
                     RiotApiAdapter.LeagueEntry entry = optionalEntry.get();
                     participant.setRank(String.format("%s %s %d LP",
