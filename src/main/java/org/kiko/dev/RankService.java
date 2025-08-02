@@ -197,12 +197,10 @@ public class RankService {
     }
 
     AccountInfo accountInfo = riotApiAdapter.getPuuid(name, tagline);
-    String encryptedSummonerId = riotApiAdapter.getEncryptedSummonerId(accountInfo.getPuuid());
 
-    List<RiotApiAdapter.LeagueEntry> entries = riotApiAdapter.getQueueRanks(encryptedSummonerId);
+    List<RiotApiAdapter.LeagueEntry> entries = riotApiAdapter.getQueueRanks(accountInfo.getPuuid());
 
-    savePlayerInformation(accountInfo.getPuuid(), accountInfo.getGameName(), accountInfo.getTagLine(), entries,
-        encryptedSummonerId);
+    savePlayerInformation(accountInfo.getPuuid(), accountInfo.getGameName(), accountInfo.getTagLine(), entries);
     return buildPlayerRankEmbed(accountInfo, entries);
   }
 
@@ -341,7 +339,7 @@ public class RankService {
    * Saves or updates a player's rank information in MongoDB.
    */
   private void savePlayerInformation(String puuid, String name, String tagline,
-      List<RiotApiAdapter.LeagueEntry> playerRanks, String encryptedSummonerId) {
+      List<RiotApiAdapter.LeagueEntry> playerRanks) {
     MongoDatabase database = mongoDbAdapter.getDatabase();
     MongoCollection<Document> collection = database
         .getCollection(SERVER_RANKS_COLLECTION + "-" + ContextHolder.getGuildId());
@@ -386,7 +384,6 @@ public class RankService {
     }
 
     Document playerDoc = new Document("puuid", puuid)
-        .append("encryptedSummonerId", encryptedSummonerId)
         .append("name", name)
         .append("tagline", tagline)
         .append("soloQRank", soloQRank)

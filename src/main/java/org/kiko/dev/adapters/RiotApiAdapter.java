@@ -364,7 +364,8 @@ public class RiotApiAdapter {
     }
   }
 
-  public String getEncryptedSummonerId(String puuid) throws Exception {
+
+  public Optional<LeagueEntry> getSoloQueueRank(String puuid) throws Exception {
 
     while (true) {
       if (!simpleRateLimiter.canProceed(APP_LIMIT)) {
@@ -372,43 +373,8 @@ public class RiotApiAdapter {
         continue;
       }
 
-      String endpoint = String.format("/lol/summoner/v4/summoners/by-puuid/%s",
+      String endpoint = String.format("/lol/league/v4/entries/by-puuid/%s",
           URLEncoder.encode(puuid, StandardCharsets.UTF_8));
-
-      HttpRequest request = HttpRequest.newBuilder()
-          .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
-          .header("X-Riot-Token", RIOT_API_KEY)
-          .GET()
-          .build();
-
-      HttpResponse<String> response = client.send(request,
-          HttpResponse.BodyHandlers.ofString());
-
-      simpleRateLimiter.updateRateLimit(APP_LIMIT, response);
-
-      if (response.statusCode() == HttpURLConnection.HTTP_OK) {
-        JsonObject jsonObject = gson.fromJson(response.body(), JsonObject.class);
-        return jsonObject.get("id").getAsString();
-      } else if (response.statusCode() == 429) { // Rate limit hit
-        continue; // Will retry after waiting
-
-      } else {
-        handleErrorResponse(response);
-        return null;
-      }
-    }
-  }
-
-  public Optional<LeagueEntry> getSoloQueueRank(String encryptedSummonerId) throws Exception {
-
-    while (true) {
-      if (!simpleRateLimiter.canProceed(APP_LIMIT)) {
-        simpleRateLimiter.awaitRateLimit(APP_LIMIT);
-        continue;
-      }
-
-      String endpoint = String.format("/lol/league/v4/entries/by-summoner/%s",
-          URLEncoder.encode(encryptedSummonerId, StandardCharsets.UTF_8));
 
       HttpRequest request = HttpRequest.newBuilder()
           .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
@@ -443,7 +409,7 @@ public class RiotApiAdapter {
     }
   }
 
-  public Optional<LeagueEntry> getFlexQueueRank(String encryptedSummonerId) throws Exception {
+  public Optional<LeagueEntry> getFlexQueueRank(String puuid) throws Exception {
 
     while (true) {
       if (!simpleRateLimiter.canProceed(APP_LIMIT)) {
@@ -451,8 +417,8 @@ public class RiotApiAdapter {
         continue;
       }
 
-      String endpoint = String.format("/lol/league/v4/entries/by-summoner/%s",
-          URLEncoder.encode(encryptedSummonerId, StandardCharsets.UTF_8));
+      String endpoint = String.format("/lol/league/v4/entries/by-puuid/%s",
+          URLEncoder.encode(puuid, StandardCharsets.UTF_8));
 
       HttpRequest request = HttpRequest.newBuilder()
           .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
@@ -487,7 +453,7 @@ public class RiotApiAdapter {
     }
   }
 
-  public List<LeagueEntry> getQueueRanks(String encryptedSummonerId) throws Exception {
+  public List<LeagueEntry> getQueueRanks(String puuid) throws Exception {
 
     while (true) {
       if (!simpleRateLimiter.canProceed(APP_LIMIT)) {
@@ -495,8 +461,8 @@ public class RiotApiAdapter {
         continue;
       }
 
-      String endpoint = String.format("/lol/league/v4/entries/by-summoner/%s",
-          URLEncoder.encode(encryptedSummonerId, StandardCharsets.UTF_8));
+      String endpoint = String.format("/lol/league/v4/entries/by-puuid/%s",
+          URLEncoder.encode(puuid, StandardCharsets.UTF_8));
 
       HttpRequest request = HttpRequest.newBuilder()
           .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
