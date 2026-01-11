@@ -209,20 +209,36 @@ public class RiotApiAdapter {
           System.out.println(counter);
 
           JsonObject participant = participantElement.getAsJsonObject();
-          String participantPuuid = participant.get("puuid").getAsString();
-
+          System.out.println(participant.toString());
+          
           Participant participantObj = new Participant();
-          participantObj.setPuuid(participantPuuid);
-          participantObj.setChampionId(participant.get("championId").getAsString());
-          participantObj.setPlayerName(playersMap.get(participantPuuid));
-          participantObj.setSummonerId(participant.get("summonerId").getAsString());
-          participantObj.setTeamId(participant.get("teamId").getAsLong());
-          if (playersMap.containsKey(participantPuuid)) {
-            participantObj.setRegisteredPlayer(true);
-            // when we find a player in the game, we remove him from the map so we dont
-            // iterate over him again
-            playersMap.remove(participantPuuid);
+          
+          // Check if puuid is null (streamer mode / privacy enabled or bot)
+          if (participant.get("puuid").isJsonNull()) {
+            participantObj.setStreamerMode(true);
+            participantObj.setPuuid(null);
+            String riotId = participant.get("riotId").getAsString();
+            boolean isBot = participant.get("bot").getAsBoolean();
+            // If bot: true -> actual bot, if bot: false -> streamer mode player
+            if (isBot) {
+              participantObj.setPlayerName(riotId + " (Bot)");
+            } else {
+              participantObj.setPlayerName(riotId + " (Streamer Mode)");
+            }
+          } else {
+            String participantPuuid = participant.get("puuid").getAsString();
+            participantObj.setPuuid(participantPuuid);
+            participantObj.setPlayerName(playersMap.get(participantPuuid));
+            if (playersMap.containsKey(participantPuuid)) {
+              participantObj.setRegisteredPlayer(true);
+              // when we find a player in the game, we remove him from the map so we dont
+              // iterate over him again
+              playersMap.remove(participantPuuid);
+            }
           }
+          
+          participantObj.setChampionId(participant.get("championId").getAsString());
+          participantObj.setTeamId(participant.get("teamId").getAsLong());
           participants.add(participantObj);
           currentGameInfo.setParticipants(participants);
 
@@ -388,7 +404,7 @@ public class RiotApiAdapter {
 
       if (response.statusCode() == HttpURLConnection.HTTP_OK) {
         JsonObject jsonObject = gson.fromJson(response.body(), JsonObject.class);
-        return jsonObject.get("id").getAsString();
+        return jsonObject.get("puuid").getAsString();
       } else if (response.statusCode() == 429) { // Rate limit hit
         continue; // Will retry after waiting
 
@@ -399,7 +415,7 @@ public class RiotApiAdapter {
     }
   }
 
-  public Optional<LeagueEntry> getSoloQueueRank(String encryptedSummonerId) throws Exception {
+  public Optional<LeagueEntry> getSoloQueueRank(String puuid) throws Exception {
 
     while (true) {
       if (!simpleRateLimiter.canProceed(APP_LIMIT)) {
@@ -407,8 +423,8 @@ public class RiotApiAdapter {
         continue;
       }
 
-      String endpoint = String.format("/lol/league/v4/entries/by-summoner/%s",
-          URLEncoder.encode(encryptedSummonerId, StandardCharsets.UTF_8));
+      String endpoint = String.format("/lol/league/v4/entries/by-puuid/%s",
+          URLEncoder.encode(puuid, StandardCharsets.UTF_8));
 
       HttpRequest request = HttpRequest.newBuilder()
           .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
@@ -443,7 +459,7 @@ public class RiotApiAdapter {
     }
   }
 
-  public Optional<LeagueEntry> getFlexQueueRank(String encryptedSummonerId) throws Exception {
+  public Optional<LeagueEntry> getFlexQueueRank(String puuid) throws Exception {
 
     while (true) {
       if (!simpleRateLimiter.canProceed(APP_LIMIT)) {
@@ -451,8 +467,8 @@ public class RiotApiAdapter {
         continue;
       }
 
-      String endpoint = String.format("/lol/league/v4/entries/by-summoner/%s",
-          URLEncoder.encode(encryptedSummonerId, StandardCharsets.UTF_8));
+      String endpoint = String.format("/lol/league/v4/entries/by-puuid/%s",
+          URLEncoder.encode(puuid, StandardCharsets.UTF_8));
 
       HttpRequest request = HttpRequest.newBuilder()
           .uri(URI.create(ACCOUNT_BASE_URL + endpoint))
@@ -487,7 +503,7 @@ public class RiotApiAdapter {
     }
   }
 
-  public List<LeagueEntry> getQueueRanks(String encryptedSummonerId) throws Exception {
+  public List<LeagueEntry> getQueueRanks(String puuid) throws Exception {
 
     while (true) {
       if (!simpleRateLimiter.canProceed(APP_LIMIT)) {
@@ -495,8 +511,8 @@ public class RiotApiAdapter {
         continue;
       }
 
-      String endpoint = String.format("/lol/league/v4/entries/by-summoner/%s",
-          URLEncoder.encode(encryptedSummonerId, StandardCharsets.UTF_8));
+      String endpoint = String.format("/lol/league/v4/entries/by-puuid/%s",
+          URLEncoder.encode(puuid, StandardCharsets.UTF_8));
 
       HttpRequest request = HttpRequest.newBuilder()
           .uri(URI.create(ACCOUNT_BASE_URL + endpoint))

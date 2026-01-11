@@ -19,6 +19,8 @@ public class Participant {
 
     private long teamId;
 
+    private boolean streamerMode;
+
     public Participant() {
         this.puuid = "";
         this.championId = "";
@@ -30,6 +32,7 @@ public class Participant {
         this.summonerId = "";
         this.rank = "";
         this.teamId = 0;
+        this.streamerMode = false;
     }
 
     // Getters
@@ -66,4 +69,7 @@ public class Participant {
     public void setSummonerId(String summonerId) { this.summonerId = summonerId; }
 
     public void setTeamId(long teamId) { this.teamId = teamId; }
+
+    public boolean isStreamerMode() { return streamerMode; }
+    public void setStreamerMode(boolean streamerMode) { this.streamerMode = streamerMode; }
 }

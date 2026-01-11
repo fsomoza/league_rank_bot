@@ -39,6 +39,7 @@ public class UpdateCommand implements Command {
         event.deferReply().queue(); // For longer operations
         try {
 //            rankService.updatePlayersInfo();
+            rankService.fetchAndStoreChampions();
             rankService.updateChampionsWithEmojiIds();
             event.getHook().sendMessage("Data update completed successfully!").setEphemeral(true).queue();
         } catch (Exception e) {
