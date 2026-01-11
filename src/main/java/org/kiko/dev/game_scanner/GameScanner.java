@@ -79,7 +79,12 @@ public class GameScanner {
         //TimeLineDto timeLineDto = riotApiAdapter.getTimeLine("EUW1_7199642701");
         Guild guild = ContextHolder.getGuild();
 
-        TextChannel textChannel = guild.getTextChannelsByName("game_scanner", true).get(0);
+        List<TextChannel> channels = guild.getTextChannelsByName("game_scanner", true);
+        if (channels.isEmpty()) {
+            System.out.println("No 'game_scanner' channel found in guild: " + guild.getName());
+            return;
+        }
+        TextChannel textChannel = channels.get(0);
 
 
         MongoDatabase database = mongoDbAdapter.getDatabase();
