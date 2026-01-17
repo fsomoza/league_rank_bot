@@ -580,9 +580,15 @@ public class RankService {
   }
   public void createCustomEmojiFromURL() {
 
-    String guild2 = "1323016315841282180";
-    String guild3 = "1323016358157615194";
-    String guild4 = "1323016391573508168";
+    List<String> guildIds = Arrays.asList(
+        "1323016231485440000", // Guild 1
+        "1323016315841282180", // Guild 2
+        "1323016358157615194", // Guild 3
+        "1323016391573508168"  // Guild 4
+    );
+
+    int maxEmojisPerGuild = 50;
+    int currentGuildIndex = 0;
 
     MongoDatabase database = mongoDbAdapter.getDatabase();
     MongoCollection<Document> serverRanksCollection = database.getCollection(CHAMPIONS_COLLECTION);
@@ -591,52 +597,57 @@ public class RankService {
     Document documentVersion = versionCollection.find().first();
     String version = documentVersion.get("version").toString();
 
-    AtomicInteger counter = new AtomicInteger();
-    AtomicReference<Guild> guild = new AtomicReference<>(jda.getGuildById("1323016231485440000"));
-    System.out.println("Guild Name: " + guild.get().getName() + ", Guild ID: " + guild.get().getId());
+    Guild currentGuild = jda.getGuildById(guildIds.get(currentGuildIndex));
+    System.out.println("Guild Name: " + currentGuild.getName() + ", Guild ID: " + currentGuild.getId());
 
     List<Document> champions = serverRanksCollection.find().into(new ArrayList<>());
 
-      for (int i = 0; i < champions.size();  i++){
-        //the first doucument is the version one so we skeep it
-        if (i == 0){
-          continue;
-        }
-        String championName = champions.get(i).getString("id");
-        System.out.println(champions.get(i).getString("name"));
+    for (int i = 0; i < champions.size(); i++) {
+      // Skip the first document (version document)
+      if (i == 0) {
+        continue;
+      }
 
-        try {
+      String championName = champions.get(i).getString("id");
+      System.out.println(champions.get(i).getString("name"));
 
-          try (InputStream imageStream = new URL(
-                  "https://ddragon.leagueoflegends.com/cdn/" + version + "/img/champion/" + champions.get(i).getString("id") + ".png")
-                  .openStream()) {
-
-            //if the emoji doesnt exits then  create it
-            List<RichCustomEmoji> emojiList = guild.get().getEmojisByName(championName, false);
-
-            if (emojiList.isEmpty()) {
-//            guild.get().createEmoji(championName, Icon.from(imageStream)).queue(
-//                emoji -> System.out.println("Created emoji: " + emoji.getName()),
-//                error -> System.err.println("Failed to create emoji: " + error.getMessage()));
-              guild.get().createEmoji(championName, Icon.from(imageStream)).complete();
-            }
-
-            if (i == 50) {
-              guild.set(jda.getGuildById(guild2));
-              System.out.println("Switching to guild 2");
-            } else if (i == 100) {
-              guild.set(jda.getGuildById(guild3));
-              System.out.println("Switching to guild 3");
-            } else if (i == 150) {
-              guild.set(jda.getGuildById(guild4));
-              System.out.println("Switching to guild 4");
-            }
+      try {
+        // Check if emoji already exists in any of the guilds
+        boolean emojiExists = false;
+        for (String guildId : guildIds) {
+          Guild g = jda.getGuildById(guildId);
+          if (g != null && !g.getEmojisByName(championName, false).isEmpty()) {
+            emojiExists = true;
+            break;
           }
-        } catch (Exception e) {
-          e.printStackTrace();
-      }
-      }
+        }
 
+        if (emojiExists) {
+          continue; // Skip if emoji already exists
+        }
+
+        // Check if current guild is full and switch to next one
+        while (currentGuild.getEmojis().size() >= maxEmojisPerGuild) {
+          currentGuildIndex++;
+          if (currentGuildIndex >= guildIds.size()) {
+            System.err.println("All guilds are full! Cannot create more emojis.");
+            return;
+          }
+          currentGuild = jda.getGuildById(guildIds.get(currentGuildIndex));
+          System.out.println("Switching to guild: " + currentGuild.getName());
+        }
+
+        try (InputStream imageStream = new URL(
+                "https://ddragon.leagueoflegends.com/cdn/" + version + "/img/champion/" + championName + ".png")
+                .openStream()) {
+          currentGuild.createEmoji(championName, Icon.from(imageStream)).complete();
+          System.out.println("Created emoji: " + championName + " in guild: " + currentGuild.getName());
+        }
+
+      } catch (Exception e) {
+        e.printStackTrace();
+      }
+    }
   }
 
   public void updateChampionsWithEmojiIds() {

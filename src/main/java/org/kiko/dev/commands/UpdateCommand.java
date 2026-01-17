@@ -40,6 +40,7 @@ public class UpdateCommand implements Command {
         try {
 //            rankService.updatePlayersInfo();
             rankService.fetchAndStoreChampions();
+            rankService.createCustomEmojiFromURL();
             rankService.updateChampionsWithEmojiIds();
             event.getHook().sendMessage("Data update completed successfully!").setEphemeral(true).queue();
         } catch (Exception e) {
